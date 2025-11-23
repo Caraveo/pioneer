@@ -5,6 +5,9 @@ struct NodeCanvasView: View {
     @State private var dragOffset: CGSize = .zero
     @State private var isDragging: Bool = false
     @State private var draggedNodeId: UUID?
+    @State private var initialDragPosition: CGPoint = .zero
+    @State private var isPanning: Bool = false
+    @State private var initialPanOffset: CGSize = .zero
     @State private var connectingFrom: UUID?
     @State private var hoveredNodeId: UUID?
     
@@ -40,23 +43,30 @@ struct NodeCanvasView: View {
                             )
                             .scaleEffect(projectManager.canvasScale)
                             .gesture(
-                                DragGesture()
+                                DragGesture(minimumDistance: 0)
                                     .onChanged { value in
-                                        if !isDragging {
-                                            isDragging = true
-                                            draggedNodeId = node.id
-                                        }
-                                        
                                         if let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
-                                            projectManager.nodes[index].position = CGPoint(
-                                                x: node.position.x + value.translation.width / projectManager.canvasScale,
-                                                y: node.position.y + value.translation.height / projectManager.canvasScale
-                                            )
+                                            if !isDragging || draggedNodeId != node.id {
+                                                // Start of drag - store initial position
+                                                isDragging = true
+                                                draggedNodeId = node.id
+                                                initialDragPosition = node.position
+                                            }
+                                            
+                                            // Calculate new position based on initial position and translation
+                                            // Divide by canvas scale to account for zoom level
+                                            let newX = initialDragPosition.x + (value.translation.width / projectManager.canvasScale)
+                                            let newY = initialDragPosition.y + (value.translation.height / projectManager.canvasScale)
+                                            
+                                            projectManager.nodes[index].position = CGPoint(x: newX, y: newY)
                                         }
                                     }
                                     .onEnded { _ in
-                                        isDragging = false
-                                        draggedNodeId = nil
+                                        if draggedNodeId == node.id {
+                                            isDragging = false
+                                            draggedNodeId = nil
+                                            initialDragPosition = .zero
+                                        }
                                     }
                             )
                             .onTapGesture {
@@ -75,13 +85,26 @@ struct NodeCanvasView: View {
                     }
             )
             .gesture(
-                DragGesture()
+                DragGesture(minimumDistance: 5)
                     .modifiers(.command)
                     .onChanged { value in
-                        projectManager.canvasOffset = CGSize(
-                            width: projectManager.canvasOffset.width + value.translation.width,
-                            height: projectManager.canvasOffset.height + value.translation.height
-                        )
+                        // Only pan if not dragging a node
+                        if !isDragging {
+                            if !isPanning {
+                                isPanning = true
+                                initialPanOffset = projectManager.canvasOffset
+                            }
+                            
+                            // Calculate new offset based on initial offset and translation
+                            projectManager.canvasOffset = CGSize(
+                                width: initialPanOffset.width + value.translation.width,
+                                height: initialPanOffset.height + value.translation.height
+                            )
+                        }
+                    }
+                    .onEnded { _ in
+                        isPanning = false
+                        initialPanOffset = .zero
                     }
             )
         }
