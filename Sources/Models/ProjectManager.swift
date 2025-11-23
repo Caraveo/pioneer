@@ -51,11 +51,34 @@ class ProjectManager: ObservableObject {
         )
         nodes.append(newNode)
         selectedNode = newNode
+        
+        // If it's a Python node, create its virtual environment
+        if newNode.language == .python {
+            Task {
+                await pythonBridge.ensureVirtualEnvironment(for: newNode)
+            }
+        }
     }
     
     func updateNode(_ node: Node) {
         if let index = nodes.firstIndex(where: { $0.id == node.id }) {
+            let oldLanguage = nodes[index].language
             nodes[index] = node
+            
+            // If language changed to Python, ensure virtual environment exists
+            if node.language == .python && oldLanguage != .python {
+                Task {
+                    await pythonBridge.ensureVirtualEnvironment(for: node)
+                }
+            }
+            
+            // If requirements changed, update the environment
+            if node.language == .python && node.pythonRequirements != nodes[index].pythonRequirements {
+                Task {
+                    await pythonBridge.updatePythonRequirements(for: node)
+                }
+            }
+            
             if selectedNode?.id == node.id {
                 selectedNode = node
             }

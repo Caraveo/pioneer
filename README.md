@@ -58,6 +58,29 @@ Or build and run in one command:
 swift run
 ```
 
+### Build App Bundle with Icon
+
+To create a proper macOS app bundle with the Pioneer.png icon:
+
+1. Place your `Pioneer.png` icon file in the project root directory
+2. Run the build script:
+
+```bash
+./build-app.sh
+```
+
+This will create a `Pioneer.app` bundle in the current directory with the icon properly configured. You can then run it with:
+
+```bash
+open Pioneer.app
+```
+
+The script will automatically:
+- Build the app in release mode
+- Create the app bundle structure
+- Convert the PNG icon to ICNS format (if `iconutil` is available)
+- Set up the Info.plist with the icon reference
+
 ## Usage
 
 1. **Create Nodes**: Click the "+" button in the sidebar or use Cmd+N to create a new node
