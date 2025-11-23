@@ -8,6 +8,12 @@
 
 Pioneer is a revolutionary macOS-native application that reimagines software development through visual, node-based architecture. Built entirely with SwiftUI, Pioneer enables developers to visually design, generate, and deploy entire software systems—from mobile apps to cloud infrastructure—all in one unified interface.
 
+## 📸 Screenshots
+
+![Pioneer App Icon](Pioneer.png)
+
+*Pioneer - Visual Node-Based AI Code Editor*
+
 ## 🎯 Vision
 
 Pioneer is designed to become the **ultimate visual development environment** where:
@@ -34,6 +40,11 @@ Pioneer is designed to become the **ultimate visual development environment** wh
 - **Grid Background**: Professional grid system for precise alignment
 
 ### Node Types
+
+![Node Types](Nodes.png)
+
+*Visual representation of different node types in Pioneer*
+
 - **macOS Apps**: Native SwiftUI applications
 - **iPhone/iPad Apps**: iOS applications
 - **Websites**: Full-stack web applications
@@ -41,6 +52,11 @@ Pioneer is designed to become the **ultimate visual development environment** wh
 - **Custom Nodes**: Extensible node system for any project type
 
 ### Code Generation
+
+![Supported Languages](Languages.png)
+
+*Comprehensive language support in Pioneer*
+
 - **15+ Languages**: Support for high-level languages and frameworks:
   - Swift, Python, TypeScript, JavaScript
   - YAML, JSON, Markdown
