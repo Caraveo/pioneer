@@ -8,8 +8,9 @@ struct NodeCanvasView: View {
     @State private var initialDragPosition: CGPoint = .zero
     @State private var isPanning: Bool = false
     @State private var initialPanOffset: CGSize = .zero
-    @State private var connectingFrom: UUID?
+    @State private var connectingToPoint: CGPoint?
     @State private var hoveredNodeId: UUID?
+    @State private var mouseLocation: CGPoint = .zero
     
     var body: some View {
         GeometryReader { geometry in
@@ -21,13 +22,27 @@ struct NodeCanvasView: View {
                 
                 // Nodes and connections
                 ZStack {
+                    // Draw active connection being created
+                    if let connectingFromId = projectManager.connectingFromNodeId,
+                       let fromNode = projectManager.nodes.first(where: { $0.id == connectingFromId }) {
+                        let fromPoint = getConnectionPoint(for: fromNode, isOutput: true)
+                        // Use mouse location or hovered connection point
+                        let toPoint = connectingToPoint ?? mouseLocation
+                        ConnectionView(
+                            from: fromPoint,
+                            to: toPoint,
+                            color: fromNode.type.color,
+                            isTemporary: true
+                        )
+                    }
+                    
                     // Draw connections first (behind nodes)
                     ForEach(projectManager.nodes) { node in
                         ForEach(node.connections, id: \.self) { targetId in
                             if let targetNode = projectManager.nodes.first(where: { $0.id == targetId }) {
                                 ConnectionView(
-                                    from: node.position,
-                                    to: targetNode.position,
+                                    from: getConnectionPoint(for: node, isOutput: true),
+                                    to: getConnectionPoint(for: targetNode, isOutput: false),
                                     color: node.type.color
                                 )
                             }
@@ -36,7 +51,10 @@ struct NodeCanvasView: View {
                     
                     // Draw nodes
                     ForEach(projectManager.nodes) { node in
-                        NodeView(node: node)
+                        NodeView(
+                            node: node,
+                            hoveredConnectionPoint: projectManager.hoveredConnectionPoint
+                        )
                             .position(
                                 x: node.position.x + projectManager.canvasOffset.width,
                                 y: node.position.y + projectManager.canvasOffset.height
@@ -88,8 +106,8 @@ struct NodeCanvasView: View {
                 DragGesture(minimumDistance: 5)
                     .modifiers(.command)
                     .onChanged { value in
-                        // Only pan if not dragging a node
-                        if !isDragging {
+                        // Only pan if not dragging a node and not connecting
+                        if !isDragging && projectManager.connectingFromNodeId == nil {
                             if !isPanning {
                                 isPanning = true
                                 initialPanOffset = projectManager.canvasOffset
@@ -106,6 +124,25 @@ struct NodeCanvasView: View {
                         isPanning = false
                         initialPanOffset = .zero
                     }
+            )
+            .background(
+                // Track mouse location for connection preview
+                GeometryReader { geometry in
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    if projectManager.connectingFromNodeId != nil {
+                                        // Convert to canvas coordinates
+                                        mouseLocation = CGPoint(
+                                            x: value.location.x - projectManager.canvasOffset.width,
+                                            y: value.location.y - projectManager.canvasOffset.height
+                                        )
+                                    }
+                                }
+                        )
+                }
             )
         }
         .background(Color(NSColor.textBackgroundColor))
@@ -130,14 +167,30 @@ struct NodeCanvasView: View {
             lineWidth: 0.5
         )
     }
+    
+    private func getConnectionPoint(for node: Node, isOutput: Bool) -> CGPoint {
+        let nodeWidth: CGFloat = 200
+        let connectionY = node.position.y + 140 // Bottom of node
+        let x = isOutput ? node.position.x + nodeWidth - 20 : node.position.x + 20
+        return CGPoint(x: x, y: connectionY)
+    }
 }
 
 struct NodeView: View {
     let node: Node
+    let hoveredConnectionPoint: (nodeId: UUID, isOutput: Bool)?
     @EnvironmentObject var projectManager: ProjectManager
     
     var isSelected: Bool {
         projectManager.selectedNode?.id == node.id
+    }
+    
+    var hasInputConnections: Bool {
+        projectManager.nodes.contains { $0.connections.contains(node.id) }
+    }
+    
+    var hasOutputConnections: Bool {
+        !node.connections.isEmpty
     }
     
     var body: some View {
@@ -178,19 +231,25 @@ struct NodeView: View {
             
             // Connection points
             HStack {
-                Circle()
-                    .fill(node.type.color)
-                    .frame(width: 8, height: 8)
-                    .overlay(Circle().stroke(Color.white, lineWidth: 2))
+                // Input connection point (left side)
+                ConnectionPointView(
+                    node: node,
+                    isOutput: false,
+                    isConnected: hasInputConnections,
+                    isHovered: hoveredConnectionPoint?.nodeId == node.id && hoveredConnectionPoint?.isOutput == false,
+                    color: node.type.color
+                )
                 
                 Spacer()
                 
-                if !node.connections.isEmpty {
-                    Circle()
-                        .fill(node.type.color)
-                        .frame(width: 8, height: 8)
-                        .overlay(Circle().stroke(Color.white, lineWidth: 2))
-                }
+                // Output connection point (right side)
+                ConnectionPointView(
+                    node: node,
+                    isOutput: true,
+                    isConnected: hasOutputConnections,
+                    isHovered: hoveredConnectionPoint?.nodeId == node.id && hoveredConnectionPoint?.isOutput == true,
+                    color: node.type.color
+                )
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
@@ -208,10 +267,97 @@ struct NodeView: View {
     }
 }
 
+struct ConnectionPointView: View {
+    let node: Node
+    let isOutput: Bool
+    let isConnected: Bool
+    let isHovered: Bool
+    let color: Color
+    @EnvironmentObject var projectManager: ProjectManager
+    @State private var isDragging: Bool = false
+    
+    var isConnecting: Bool {
+        projectManager.connectingFromNodeId != nil
+    }
+    
+    var body: some View {
+        Circle()
+            .fill(isConnected ? color : Color.clear)
+            .frame(width: 12, height: 12)
+            .overlay(
+                Circle()
+                    .stroke(isConnected ? color : color.opacity(0.5), lineWidth: isHovered ? 3 : 2)
+            )
+            .scaleEffect(isHovered ? 1.3 : 1.0)
+            .animation(.spring(response: 0.2), value: isHovered)
+            .gesture(
+                DragGesture(minimumDistance: 5)
+                    .onChanged { value in
+                        if !isDragging && isOutput {
+                            isDragging = true
+                            projectManager.startConnection(from: node.id)
+                        }
+                    }
+                    .onEnded { value in
+                        isDragging = false
+                        // Connection will be completed on tap of input point
+                        // Or cancel if not connected
+                        if projectManager.connectingFromNodeId == node.id {
+                            // Check if we're over an input point
+                            // This would be handled by the canvas detecting the drop
+                        }
+                    }
+            )
+            .onTapGesture {
+                if !isOutput && isConnecting {
+                    // Complete connection to this input
+                    if let connectingFrom = projectManager.connectingFromNodeId, connectingFrom != node.id {
+                        projectManager.connectNodes(from: connectingFrom, to: node.id)
+                        projectManager.endConnection()
+                    } else {
+                        // Cancel connection if clicking same node
+                        projectManager.endConnection()
+                    }
+                } else if isOutput && !isConnecting {
+                    // Start new connection from output
+                    projectManager.startConnection(from: node.id)
+                } else if isOutput && isConnecting && projectManager.connectingFromNodeId == node.id {
+                    // Cancel connection if clicking output again
+                    projectManager.endConnection()
+                }
+            }
+            .contextMenu {
+                if isConnected {
+                    Button("Disconnect") {
+                        if isOutput {
+                            // Remove all connections from this node
+                            if let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
+                                projectManager.nodes[index].connections.removeAll()
+                            }
+                        } else {
+                            // Remove connections to this node
+                            for i in projectManager.nodes.indices {
+                                projectManager.nodes[i].connections.removeAll { $0 == node.id }
+                            }
+                        }
+                    }
+                }
+            }
+            .onHover { hovering in
+                if hovering {
+                    projectManager.hoverConnectionPoint(nodeId: node.id, isOutput: isOutput)
+                } else if projectManager.hoveredConnectionPoint?.nodeId == node.id {
+                    projectManager.hoverConnectionPoint(nodeId: nil, isOutput: false)
+                }
+            }
+    }
+}
+
 struct ConnectionView: View {
     let from: CGPoint
     let to: CGPoint
     let color: Color
+    var isTemporary: Bool = false
     
     @EnvironmentObject var projectManager: ProjectManager
     
@@ -244,7 +390,14 @@ struct ConnectionView: View {
                 control2: controlPoint2
             )
         }
-        .stroke(color.opacity(0.6), lineWidth: 2)
+        .stroke(
+            isTemporary ? color.opacity(0.4) : color.opacity(0.6),
+            style: StrokeStyle(
+                lineWidth: isTemporary ? 2 : 2,
+                lineCap: .round,
+                dash: isTemporary ? [5, 5] : []
+            )
+        )
     }
 }
 

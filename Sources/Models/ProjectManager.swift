@@ -7,6 +7,8 @@ class ProjectManager: ObservableObject {
     @Published var selectedNode: Node?
     @Published var canvasOffset: CGSize = .zero
     @Published var canvasScale: CGFloat = 1.0
+    @Published var connectingFromNodeId: UUID?
+    @Published var hoveredConnectionPoint: (nodeId: UUID, isOutput: Bool)?
     
     private let pythonBridge = PythonBridge()
     
@@ -106,6 +108,22 @@ class ProjectManager: ObservableObject {
     func disconnectNodes(from sourceId: UUID, to targetId: UUID) {
         guard let index = nodes.firstIndex(where: { $0.id == sourceId }) else { return }
         nodes[index].connections.removeAll { $0 == targetId }
+    }
+    
+    func startConnection(from nodeId: UUID) {
+        connectingFromNodeId = nodeId
+    }
+    
+    func endConnection() {
+        connectingFromNodeId = nil
+    }
+    
+    func hoverConnectionPoint(nodeId: UUID?, isOutput: Bool) {
+        if let nodeId = nodeId {
+            hoveredConnectionPoint = (nodeId, isOutput)
+        } else {
+            hoveredConnectionPoint = nil
+        }
     }
     
     // Generation actions
