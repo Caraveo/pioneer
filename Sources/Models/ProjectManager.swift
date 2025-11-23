@@ -1,0 +1,122 @@
+import Foundation
+import SwiftUI
+import Combine
+
+class ProjectManager: ObservableObject {
+    @Published var nodes: [Node] = []
+    @Published var selectedNode: Node?
+    @Published var canvasOffset: CGSize = .zero
+    @Published var canvasScale: CGFloat = 1.0
+    
+    private let pythonBridge = PythonBridge()
+    
+    init() {
+        // Create a default node for demonstration
+        createDefaultNodes()
+    }
+    
+    func createDefaultNodes() {
+        let defaultNode = Node(
+            name: "Example iPhone App",
+            type: .iPhoneApp,
+            position: CGPoint(x: 100, y: 100),
+            code: """
+            import SwiftUI
+
+            struct ContentView: View {
+                var body: some View {
+                    VStack {
+                        Text("Hello, Pioneer!")
+                            .font(.largeTitle)
+                    }
+                    .padding()
+                }
+            }
+            """,
+            language: .swift
+        )
+        nodes.append(defaultNode)
+    }
+    
+    func createNewNode() {
+        let newNode = Node(
+            name: "New Node \(nodes.count + 1)",
+            type: .custom,
+            position: CGPoint(
+                x: 200 + CGFloat(nodes.count) * 50,
+                y: 200 + CGFloat(nodes.count) * 50
+            ),
+            code: "",
+            language: .swift
+        )
+        nodes.append(newNode)
+        selectedNode = newNode
+    }
+    
+    func updateNode(_ node: Node) {
+        if let index = nodes.firstIndex(where: { $0.id == node.id }) {
+            nodes[index] = node
+            if selectedNode?.id == node.id {
+                selectedNode = node
+            }
+        }
+    }
+    
+    func deleteNode(_ node: Node) {
+        nodes.removeAll { $0.id == node.id }
+        // Remove connections to this node
+        for i in nodes.indices {
+            nodes[i].connections.removeAll { $0 == node.id }
+        }
+        if selectedNode?.id == node.id {
+            selectedNode = nil
+        }
+    }
+    
+    func connectNodes(from sourceId: UUID, to targetId: UUID) {
+        guard let index = nodes.firstIndex(where: { $0.id == sourceId }) else { return }
+        if !nodes[index].connections.contains(targetId) {
+            nodes[index].connections.append(targetId)
+        }
+    }
+    
+    func disconnectNodes(from sourceId: UUID, to targetId: UUID) {
+        guard let index = nodes.firstIndex(where: { $0.id == sourceId }) else { return }
+        nodes[index].connections.removeAll { $0 == targetId }
+    }
+    
+    // Generation actions
+    func generateiPhoneApp() {
+        guard let selected = selectedNode else {
+            print("No node selected for iPhone app generation")
+            return
+        }
+        
+        Task {
+            await pythonBridge.generateiPhoneApp(node: selected)
+        }
+    }
+    
+    func generateWebsite() {
+        guard let selected = selectedNode else {
+            print("No node selected for website generation")
+            return
+        }
+        
+        Task {
+            await pythonBridge.generateWebsite(node: selected)
+        }
+    }
+    
+    func deployBackendToAWS() {
+        guard let selected = selectedNode else {
+            print("No node selected for AWS deployment")
+            return
+        }
+        
+        Task {
+            await pythonBridge.deployToAWS(node: selected)
+        }
+    }
+}
+
