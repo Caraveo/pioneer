@@ -11,6 +11,10 @@ struct NodeCanvasView: View {
     @State private var connectingToPoint: CGPoint?
     @State private var hoveredNodeId: UUID?
     @State private var mouseLocation: CGPoint = .zero
+    @StateObject private var aiService = AIService()
+    @State private var aiPrompt: String = ""
+    @State private var showAIResponse: Bool = false
+    @State private var aiResponseMessage: String = ""
     
     var body: some View {
         GeometryReader { geometry in
@@ -144,8 +148,107 @@ struct NodeCanvasView: View {
                         )
                 }
             )
+            
+            // AI Prompt Input at the bottom
+            VStack(spacing: 0) {
+                Spacer()
+                
+                // AI Response Bubble
+                if showAIResponse {
+                    AIResponseBubble(message: aiResponseMessage) {
+                        withAnimation {
+                            showAIResponse = false
+                        }
+                    }
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                        removal: .move(edge: .bottom).combined(with: .opacity)
+                    ))
+                    .padding(.bottom, 12)
+                    .padding(.horizontal, 16)
+                }
+                
+                // AI Prompt Input
+                AIPromptInput(
+                    prompt: $aiPrompt,
+                    isProcessing: aiService.isProcessing,
+                    onSubmit: {
+                        handleAIPrompt()
+                    }
+                )
+            }
         }
         .background(Color(NSColor.textBackgroundColor))
+    }
+    
+    private func handleAIPrompt() {
+        guard !aiPrompt.isEmpty else { return }
+        guard let selectedNode = projectManager.selectedNode else {
+            // Show error - no node selected
+            withAnimation {
+                aiResponseMessage = "Please select a node first to generate code for it."
+                showAIResponse = true
+            }
+            return
+        }
+        
+        Task {
+            if let generatedCode = await aiService.generateCode(
+                prompt: aiPrompt,
+                language: selectedNode.language,
+                nodeContext: selectedNode
+            ) {
+                // Extract only the code (remove markdown if present)
+                let codeOnly = extractCodeFromResponse(generatedCode)
+                
+                // Update the selected node's code
+                if let index = projectManager.nodes.firstIndex(where: { $0.id == selectedNode.id }) {
+                    projectManager.nodes[index].code = codeOnly
+                    projectManager.selectedNode = projectManager.nodes[index]
+                }
+                
+                // Show success message
+                await MainActor.run {
+                    withAnimation {
+                        aiResponseMessage = "Code generated and added to \(selectedNode.name)"
+                        showAIResponse = true
+                        aiPrompt = "" // Clear prompt
+                    }
+                }
+            } else {
+                await MainActor.run {
+                    withAnimation {
+                        aiResponseMessage = "Failed to generate code. Please try again."
+                        showAIResponse = true
+                    }
+                }
+            }
+        }
+    }
+    
+    private func extractCodeFromResponse(_ response: String) -> String {
+        // Remove markdown code blocks if present
+        var code = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Remove ```language blocks
+        if code.hasPrefix("```") {
+            let lines = code.components(separatedBy: .newlines)
+            var codeLines: [String] = []
+            var inCodeBlock = false
+            
+            for line in lines {
+                if line.hasPrefix("```") {
+                    inCodeBlock = !inCodeBlock
+                    continue
+                }
+                if inCodeBlock || !code.hasPrefix("```") {
+                    codeLines.append(line)
+                }
+            }
+            code = codeLines.joined(separator: "\n")
+        }
+        
+        return code.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     private func drawGrid(context: GraphicsContext, size: CGSize) {

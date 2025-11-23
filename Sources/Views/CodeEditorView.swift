@@ -29,11 +29,15 @@ struct CodeEditorView: View {
                             }
                         )) {
                             ForEach(CodeLanguage.allCases, id: \.self) { language in
-                                Text(language.rawValue).tag(language)
+                                HStack {
+                                    Image(systemName: language.icon)
+                                    Text(language.rawValue)
+                                }
+                                .tag(language)
                             }
                         }
                         .pickerStyle(.menu)
-                        .frame(width: 120)
+                        .frame(width: 150)
                     }
                     .padding(.horizontal)
                     .padding(.top, 12)
