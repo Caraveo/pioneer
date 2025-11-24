@@ -35,9 +35,17 @@ struct ContentView: View {
                         }
                     
                     case .editor:
-                        // Editor Mode - Show only code editor
-                        CodeEditorView()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        // Editor Mode - Show code editor with terminal at bottom
+                        VStack(spacing: 0) {
+                            // Code editor (takes remaining space)
+                            CodeEditorView()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            
+                            Divider()
+                            
+                            // Terminal at bottom (spans full width)
+                            TerminalView()
+                        }
                     }
                 }
             }
