@@ -47,18 +47,18 @@ struct MonacoEditorView: NSViewRepresentable {
         let newTheme = colorScheme == .dark ? "vs-dark" : "vs"
         if currentTheme != newTheme {
             context.coordinator.currentTheme = newTheme
-            updateTheme(webView: nsView, theme: newTheme)
+            updateTheme(webView: webView, theme: newTheme)
         }
         
         // Update language if changed
         if context.coordinator.currentLanguage != language {
             context.coordinator.currentLanguage = language
-            updateLanguage(webView: nsView, language: language)
+            updateLanguage(webView: webView, language: language)
         }
         
         // Update text if changed (but not if we're the source of the change)
-        if !context.coordinator.isUpdatingFromJS && nsView.url != nil {
-            updateText(webView: nsView, text: text)
+        if !context.coordinator.isUpdatingFromJS && webView.url != nil {
+            updateText(webView: webView, text: text)
         }
     }
     
