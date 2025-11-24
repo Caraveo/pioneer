@@ -91,9 +91,13 @@ struct NodeCanvasView: View {
                                     }
                             )
                             .onTapGesture {
-                                // Save current node's files before switching
-                                projectManager.saveCurrentNodeFiles()
-                                projectManager.selectedNode = node
+                                // Force save current node's files before switching
+                                projectManager.forceSaveCurrentNode()
+                                
+                                // Small delay to ensure save completes
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                    projectManager.selectedNode = node
+                                }
                             }
                             .onHover { hovering in
                                 hoveredNodeId = hovering ? node.id : nil

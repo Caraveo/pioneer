@@ -5,6 +5,7 @@ import WebKit
 struct MonacoEditorView: NSViewRepresentable {
     @Binding var text: String
     let language: CodeLanguage
+    var onWebViewReady: ((WKWebView) -> Void)?
     
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
@@ -18,6 +19,12 @@ struct MonacoEditorView: NSViewRepresentable {
         webView.loadHTMLString(html, baseURL: nil)
         
         context.coordinator.webView = webView
+        context.coordinator.onWebViewReady = onWebViewReady
+        
+        // Notify when webView is ready
+        DispatchQueue.main.async {
+            onWebViewReady?(webView)
+        }
         
         return webView
     }
@@ -177,6 +184,8 @@ struct MonacoEditorView: NSViewRepresentable {
         weak var webView: WKWebView?
         var currentLanguage: CodeLanguage
         var isUpdatingFromJS: Bool = false
+        var onWebViewReady: ((WKWebView) -> Void)?
+        var lastKnownContent: String = ""
         
         init(_ parent: MonacoEditorView) {
             self.parent = parent
@@ -199,6 +208,7 @@ struct MonacoEditorView: NSViewRepresentable {
             switch type {
             case "contentChanged":
                 if let value = body["value"] as? String {
+                    lastKnownContent = value
                     isUpdatingFromJS = true
                     DispatchQueue.main.async {
                         self.parent.text = value

@@ -29,15 +29,16 @@ struct SidebarView: View {
             List(selection: Binding(
                 get: { projectManager.selectedNode?.id },
                 set: { id in
-                    // Save current node's files before switching
-                    if let currentNode = projectManager.selectedNode {
-                        projectManager.saveCurrentNodeFiles()
-                    }
+                    // Force save current node's files before switching
+                    projectManager.forceSaveCurrentNode()
                     
-                    if let id = id {
-                        // Get the node from the array (which should have latest changes)
-                        if let index = projectManager.nodes.firstIndex(where: { $0.id == id }) {
-                            projectManager.selectedNode = projectManager.nodes[index]
+                    // Small delay to ensure save completes
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        if let id = id {
+                            // Get the node from the array (which should have latest changes)
+                            if let index = projectManager.nodes.firstIndex(where: { $0.id == id }) {
+                                projectManager.selectedNode = projectManager.nodes[index]
+                            }
                         }
                     }
                 }

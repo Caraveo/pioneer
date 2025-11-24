@@ -239,17 +239,26 @@ class ProjectManager: ObservableObject {
         }
         
         // Update the node in the array with the current selectedNode's state
+        // This ensures any changes in selectedNode are persisted to the array
         nodes[index] = selectedNode
+        
+        // Also ensure selectedNode is updated from array (in case array has newer data)
+        self.selectedNode = nodes[index]
         
         // Save files to disk
         Task {
             do {
-                let projectPath = nodeProjectService.getProjectPath(for: selectedNode)
-                try await nodeProjectService.saveAllFiles(node: selectedNode, projectPath: projectPath)
+                let projectPath = nodeProjectService.getProjectPath(for: nodes[index])
+                try await nodeProjectService.saveAllFiles(node: nodes[index], projectPath: projectPath)
             } catch {
                 print("Failed to save node files: \(error)")
             }
         }
+    }
+    
+    /// Force save current node by getting latest content from editor
+    func forceSaveCurrentNode() {
+        saveCurrentNodeFiles()
     }
     
     func deleteNode(_ node: Node) {
