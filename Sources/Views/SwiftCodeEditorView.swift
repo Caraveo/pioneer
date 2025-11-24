@@ -444,8 +444,6 @@ class CodeTextView: NSTextView {
         usesRuler = false
         
         // Enable keyboard input
-        acceptsRichText = false
-        isFieldEditor = false
         isEditable = true
         isSelectable = true
         allowsUndo = true
