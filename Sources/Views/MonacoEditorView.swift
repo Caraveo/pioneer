@@ -383,15 +383,17 @@ class FocusableWebViewContainer: NSView {
         // Ensure webView gets focus on click
         window?.makeFirstResponder(webView)
         
-        // Also focus Monaco editor
+        // Also focus Monaco editor immediately
         let focusScript = """
         if (window.monacoEditor) {
             window.monacoEditor.focus();
+            window.monacoEditor.updateOptions({ readOnly: false });
         }
         """
         webView.evaluateJavaScript(focusScript, completionHandler: nil)
         
-        super.mouseDown(with: event)
+        // Forward mouse event to webView
+        webView.mouseDown(with: event)
     }
     
     override func mouseEntered(with event: NSEvent) {
@@ -406,17 +408,12 @@ class FocusableWebViewContainer: NSView {
     }
     
     override func keyDown(with event: NSEvent) {
-        // Ensure webView has focus and forward the event
+        // Don't intercept - just ensure focus and let webView handle it naturally
         if window?.firstResponder !== webView {
             window?.makeFirstResponder(webView)
-            // Try again after making first responder
-            DispatchQueue.main.async {
-                self.webView.keyDown(with: event)
-            }
-        } else {
-            // Forward directly to webView
-            webView.keyDown(with: event)
         }
+        // Don't call super or forward - let the event propagate naturally to webView
+        // The webView will receive it if it's first responder
     }
     
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
