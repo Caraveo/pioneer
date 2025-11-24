@@ -108,26 +108,24 @@ class ProjectManager: ObservableObject {
     }
     
     func createDefaultNodes() {
-        let defaultNode = Node(
+        var defaultNode = Node(
             name: "Example iPhone App",
             type: .iPhoneApp,
             position: CGPoint(x: 100, y: 100),
-            code: """
-            import SwiftUI
-
-            struct ContentView: View {
-                var body: some View {
-                    VStack {
-                        Text("Hello, Pioneer!")
-                            .font(.largeTitle)
-                    }
-                    .padding()
-                }
-            }
-            """,
+            code: "",
             language: .swift
         )
+        
+        // Ensure main file exists
+        let mainFile = defaultNode.getOrCreateMainFile()
+        defaultNode.selectedFileId = mainFile.id
+        
         nodes.append(defaultNode)
+        
+        // Initialize project for default node
+        Task {
+            await initializeNodeProject(node: defaultNode)
+        }
     }
     
     func createNewNode() {

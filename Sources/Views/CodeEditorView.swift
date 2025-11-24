@@ -6,7 +6,8 @@ struct CodeEditorView: View {
     @EnvironmentObject var projectManager: ProjectManager
     @State private var editorText: String = ""
     @State private var isEditing: Bool = false
-    @State private var monacoWebView: WKWebView?
+    // Store webView per node+file combination
+    @State private var webViewStore: [String: WKWebView] = [:]
     
     var body: some View {
         HStack(spacing: 0) {
@@ -96,6 +97,8 @@ struct CodeEditorView: View {
                     
                     // Code editor with Monaco Editor (VSCode's editor)
                     if let selectedFile = currentNode.selectedFile {
+                        let editorKey = "\(currentNode.id.uuidString)-\(selectedFile.id.uuidString)"
+                        
                         MonacoEditorView(
                             text: Binding(
                                 get: {
@@ -130,49 +133,53 @@ struct CodeEditorView: View {
                             ),
                             language: selectedFile.language,
                             onWebViewReady: { webView in
-                                monacoWebView = webView
+                                // Store webView per node+file combination
+                                webViewStore[editorKey] = webView
                             }
                         )
-                        .id("\(currentNode.id.uuidString)-\(selectedFile.id.uuidString)") // Unique ID per node+file
+                        .id(editorKey) // Unique ID per node+file - forces new instance
                         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
                         .onChange(of: projectManager.selectedNode?.id) { oldId in
                             // Before switching, get current content from Monaco and save
                             if let oldId = oldId,
                                let oldNodeIndex = projectManager.nodes.firstIndex(where: { $0.id == oldId }),
-                               let webView = monacoWebView {
-                                Task {
-                                    // Get current content from Monaco editor
-                                    let script = """
-                                    if (window.monacoEditor) {
-                                        window.monacoEditor.getValue();
-                                    } else {
-                                        "";
-                                    }
-                                    """
-                                    
-                                    if let content = await withCheckedContinuation({ continuation in
-                                        webView.evaluateJavaScript(script) { result, error in
-                                            continuation.resume(returning: result as? String)
+                               let oldFileId = projectManager.nodes[oldNodeIndex].selectedFileId {
+                                let oldEditorKey = "\(oldId.uuidString)-\(oldFileId.uuidString)"
+                                
+                                if let webView = webViewStore[oldEditorKey] {
+                                    Task {
+                                        // Get current content from Monaco editor
+                                        let script = """
+                                        if (window.monacoEditor) {
+                                            window.monacoEditor.getValue();
+                                        } else {
+                                            "";
                                         }
-                                    }) {
-                                        // Update node with current Monaco content
-                                        if let fileId = projectManager.nodes[oldNodeIndex].selectedFileId,
-                                           let fileIndex = projectManager.nodes[oldNodeIndex].files.firstIndex(where: { $0.id == fileId }) {
-                                            projectManager.nodes[oldNodeIndex].files[fileIndex].content = content
-                                            if fileIndex == 0 {
-                                                projectManager.nodes[oldNodeIndex].code = content
-                                            }
-                                        }
+                                        """
                                         
-                                        // Save files
-                                        projectManager.saveCurrentNodeFiles()
+                                        if let content = await withCheckedContinuation({ continuation in
+                                            webView.evaluateJavaScript(script) { result, error in
+                                                continuation.resume(returning: result as? String)
+                                            }
+                                        }) {
+                                            // Update node with current Monaco content
+                                            if let fileIndex = projectManager.nodes[oldNodeIndex].files.firstIndex(where: { $0.id == oldFileId }) {
+                                                projectManager.nodes[oldNodeIndex].files[fileIndex].content = content
+                                                if fileIndex == 0 {
+                                                    projectManager.nodes[oldNodeIndex].code = content
+                                                }
+                                            }
+                                            
+                                            // Save files
+                                            projectManager.saveCurrentNodeFiles()
+                                        }
                                     }
                                 }
                             }
                         }
                         .onDisappear {
                             // Save when editor disappears - get content from Monaco first
-                            if let webView = monacoWebView {
+                            if let webView = webViewStore[editorKey] {
                                 Task {
                                     let script = """
                                     if (window.monacoEditor) {

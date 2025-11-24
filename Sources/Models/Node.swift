@@ -75,16 +75,27 @@ struct Node: Identifiable, Codable {
         self.files = files
         self.selectedFileId = selectedFileId
         
-        // Initialize with main file if files is empty
-        if files.isEmpty && !code.isEmpty {
+        // Always ensure main file exists (even if files array is provided)
+        // This guarantees every node has at least one file
+        if files.isEmpty {
+            // Create main file with code or default template
             let mainFile = ProjectFile(
                 path: getMainFilePath(for: language),
                 name: getMainFileName(for: language),
-                content: code,
+                content: code.isEmpty ? getDefaultCodeForLanguage(language) : code,
                 language: language
             )
             self.files = [mainFile]
             self.selectedFileId = mainFile.id
+            // Sync code with main file
+            if !code.isEmpty {
+                self.code = code
+            } else {
+                self.code = mainFile.content
+            }
+        } else if selectedFileId == nil {
+            // If files exist but no file is selected, select the first one
+            self.selectedFileId = files.first?.id
         }
     }
     
