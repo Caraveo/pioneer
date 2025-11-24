@@ -112,7 +112,7 @@ class AIService: ObservableObject {
             nodeContext += "- Support both iPhone and iPad layouts.\n"
             nodeContext += "- Use UIKit and SwiftUI frameworks appropriately.\n"
             
-        case .website:
+        case .service:
             nodeContext += "- This is a web application. Generate HTML, CSS, and JavaScript.\n"
             nodeContext += "- Make it responsive and modern.\n"
             nodeContext += "- Use best practices for web development.\n"

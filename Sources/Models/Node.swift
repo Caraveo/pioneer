@@ -4,7 +4,7 @@ import SwiftUI
 enum NodeType: String, Codable, CaseIterable, Identifiable {
     case macOSApp = "macOS App"
     case iPhoneApp = "iPhone App"
-    case website = "Website"
+    case service = "Service"
     case awsBackend = "AWS Backend"
     case custom = "Custom"
     
@@ -14,7 +14,7 @@ enum NodeType: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .macOSApp: return "desktopcomputer"
         case .iPhoneApp: return "iphone"
-        case .website: return "globe"
+        case .service: return "globe"
         case .awsBackend: return "server.rack"
         case .custom: return "square.stack"
         }
@@ -24,7 +24,7 @@ enum NodeType: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .macOSApp: return .blue
         case .iPhoneApp: return .purple
-        case .website: return .green
+        case .service: return .green
         case .awsBackend: return .orange
         case .custom: return .gray
         }
