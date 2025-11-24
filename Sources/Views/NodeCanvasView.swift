@@ -197,6 +197,13 @@ struct NodeCanvasView: View {
             let connectedNodeIds = selectedNode.connections
             let connectedNodes = projectManager.nodes.filter { connectedNodeIds.contains($0.id) }
             
+            // Ensure project structure exists
+            do {
+                try await projectManager.nodeProjectService.createProjectStructure(for: selectedNode)
+            } catch {
+                print("Failed to create project structure: \(error)")
+            }
+            
             if let generatedCode = await projectManager.aiService.generateCode(
                 prompt: aiPrompt,
                 language: selectedNode.language,
@@ -210,13 +217,27 @@ struct NodeCanvasView: View {
                 // Update the selected node's code
                 if let index = projectManager.nodes.firstIndex(where: { $0.id == selectedNode.id }) {
                     projectManager.nodes[index].code = codeOnly
+                    
+                    // Save code to project file
+                    do {
+                        let projectPath = projectManager.nodeProjectService.getProjectPath(for: selectedNode)
+                        try await projectManager.nodeProjectService.saveMainCodeFile(node: projectManager.nodes[index], projectPath: projectPath)
+                        
+                        // Update project path if not set
+                        if projectManager.nodes[index].projectPath == nil {
+                            projectManager.nodes[index].projectPath = projectPath.path
+                        }
+                    } catch {
+                        print("Failed to save code to project: \(error)")
+                    }
+                    
                     projectManager.selectedNode = projectManager.nodes[index]
                 }
                 
                 // Show success message
                 await MainActor.run {
                     withAnimation {
-                        aiResponseMessage = "Code generated and added to \(selectedNode.name)"
+                        aiResponseMessage = "Code generated and saved to \(selectedNode.name) project"
                         showAIResponse = true
                         aiPrompt = "" // Clear prompt
                     }

@@ -39,10 +39,11 @@ struct Node: Identifiable, Codable {
     var code: String
     var language: CodeLanguage
     var connections: [UUID] // IDs of connected nodes
+    var projectPath: String? // Path to this node's project directory
     var pythonEnvironmentPath: String? // Path to virtual environment for Python nodes
     var pythonRequirements: String // requirements.txt content for Python nodes
     
-    init(id: UUID = UUID(), name: String, type: NodeType, position: CGPoint = .zero, code: String = "", language: CodeLanguage = .swift, connections: [UUID] = [], pythonEnvironmentPath: String? = nil, pythonRequirements: String = "") {
+    init(id: UUID = UUID(), name: String, type: NodeType, position: CGPoint = .zero, code: String = "", language: CodeLanguage = .swift, connections: [UUID] = [], projectPath: String? = nil, pythonEnvironmentPath: String? = nil, pythonRequirements: String = "") {
         self.id = id
         self.name = name
         self.type = type
@@ -50,8 +51,18 @@ struct Node: Identifiable, Codable {
         self.code = code
         self.language = language
         self.connections = connections
+        self.projectPath = projectPath
         self.pythonEnvironmentPath = pythonEnvironmentPath
         self.pythonRequirements = pythonRequirements
+    }
+    
+    /// Get the project directory name (sanitized)
+    var projectDirectoryName: String {
+        name
+            .replacingOccurrences(of: " ", with: "-")
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: "\\", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
     }
 }
 

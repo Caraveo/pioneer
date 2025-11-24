@@ -38,6 +38,14 @@ struct ToolbarView: View {
             
             Spacer()
             
+            // Project name
+            if !projectManager.projectName.isEmpty {
+                Text(projectManager.projectName)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 8)
+            }
+            
             // Canvas controls
             HStack(spacing: 8) {
                 Button(action: {

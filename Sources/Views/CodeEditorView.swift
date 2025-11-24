@@ -42,11 +42,24 @@ struct CodeEditorView: View {
                     .padding(.horizontal)
                     .padding(.top, 12)
                     
-                    Text(node.type.rawValue)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal)
-                        .padding(.bottom, 8)
+                    HStack {
+                        Text(node.type.rawValue)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Button(action: {
+                            projectManager.openNodeProjectInFinder(node)
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "folder")
+                                Text("Open Project")
+                            }
+                            .font(.caption)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
                 }
                 .background(Color(NSColor.controlBackgroundColor))
                 

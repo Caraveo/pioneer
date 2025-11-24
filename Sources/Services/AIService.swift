@@ -33,14 +33,11 @@ class AIService: ObservableObject {
         }
         
         do {
-            // Build system prompt from template
-            let systemPrompt = selectedTemplate.systemPrompt
+            // Build node-specific system prompt
+            let systemPrompt = buildNodeSpecificSystemPrompt(node: nodeContext, template: selectedTemplate)
             
-            // Build user prompt with template prefix if applicable
-            var userPrompt = prompt
-            if selectedTemplate != .custom, !selectedTemplate.userPromptPrefix.isEmpty {
-                userPrompt = selectedTemplate.userPromptPrefix + prompt
-            }
+            // Build user prompt with node-specific context
+            var userPrompt = buildNodeSpecificUserPrompt(prompt: prompt, node: nodeContext, template: selectedTemplate)
             
             // Build context
             let context: LLMService.NodeContext? = {
@@ -83,6 +80,119 @@ class AIService: ObservableObject {
     func listAvailableModels(for provider: LLMProvider) async -> [AIModel] {
         let service = LLMService(configuration: configuration)
         return await service.listAvailableModels(for: provider)
+    }
+    
+    private func buildNodeSpecificSystemPrompt(node: Node?, template: PromptTemplate) -> String {
+        var basePrompt = template.systemPrompt
+        
+        guard let node = node else {
+            return basePrompt
+        }
+        
+        // Add node type-specific context
+        var nodeContext = "\n\nNode Context:\n"
+        nodeContext += "- Node Type: \(node.type.rawValue)\n"
+        nodeContext += "- Node Name: \(node.name)\n"
+        nodeContext += "- Language: \(node.language.rawValue)\n"
+        
+        if let projectPath = node.projectPath {
+            nodeContext += "- Project Path: \(projectPath)\n"
+        }
+        
+        // Add node type-specific instructions
+        switch node.type {
+        case .macOSApp:
+            nodeContext += "- This is a macOS application. Generate native macOS code using SwiftUI.\n"
+            nodeContext += "- Follow macOS Human Interface Guidelines.\n"
+            nodeContext += "- Use AppKit and SwiftUI frameworks appropriately.\n"
+            
+        case .iPhoneApp:
+            nodeContext += "- This is an iPhone/iPad application. Generate iOS code using SwiftUI.\n"
+            nodeContext += "- Follow iOS Human Interface Guidelines.\n"
+            nodeContext += "- Support both iPhone and iPad layouts.\n"
+            nodeContext += "- Use UIKit and SwiftUI frameworks appropriately.\n"
+            
+        case .website:
+            nodeContext += "- This is a web application. Generate HTML, CSS, and JavaScript.\n"
+            nodeContext += "- Make it responsive and modern.\n"
+            nodeContext += "- Use best practices for web development.\n"
+            
+        case .awsBackend:
+            nodeContext += "- This is an AWS backend service. Generate infrastructure and server code.\n"
+            nodeContext += "- Use AWS best practices and services (Lambda, API Gateway, DynamoDB, etc.).\n"
+            nodeContext += "- Include proper error handling and logging.\n"
+            
+        case .custom:
+            nodeContext += "- This is a custom project. Generate code appropriate for the selected language.\n"
+        }
+        
+        // Add language-specific instructions
+        switch node.language {
+        case .python:
+            nodeContext += "- Use Python best practices (PEP 8 style guide).\n"
+            nodeContext += "- Include proper docstrings and type hints where appropriate.\n"
+            nodeContext += "- Handle errors with try/except blocks.\n"
+            
+        case .swift:
+            nodeContext += "- Use Swift best practices and SwiftUI patterns.\n"
+            nodeContext += "- Follow Swift API Design Guidelines.\n"
+            nodeContext += "- Use proper error handling with Result types or throws.\n"
+            
+        case .typescript, .javascript:
+            nodeContext += "- Use modern ES6+ JavaScript/TypeScript features.\n"
+            nodeContext += "- Follow TypeScript best practices if applicable.\n"
+            nodeContext += "- Include proper error handling.\n"
+            
+        case .dockerfile:
+            nodeContext += "- Generate optimized, production-ready Dockerfiles.\n"
+            nodeContext += "- Use multi-stage builds when appropriate.\n"
+            nodeContext += "- Follow Docker best practices.\n"
+            
+        case .kubernetes:
+            nodeContext += "- Generate production-ready Kubernetes manifests.\n"
+            nodeContext += "- Include proper resource limits and health checks.\n"
+            nodeContext += "- Follow Kubernetes best practices.\n"
+            
+        case .terraform:
+            nodeContext += "- Generate Terraform configurations following best practices.\n"
+            nodeContext += "- Use variables and outputs appropriately.\n"
+            nodeContext += "- Include proper state management considerations.\n"
+            
+        default:
+            break
+        }
+        
+        return basePrompt + nodeContext
+    }
+    
+    private func buildNodeSpecificUserPrompt(prompt: String, node: Node?, template: PromptTemplate) -> String {
+        var userPrompt = prompt
+        
+        // Add template prefix if applicable
+        if template != .custom, !template.userPromptPrefix.isEmpty {
+            userPrompt = template.userPromptPrefix + prompt
+        }
+        
+        guard let node = node else {
+            return userPrompt
+        }
+        
+        // Add node-specific project context
+        var projectContext = "\n\nProject Requirements:\n"
+        projectContext += "- Project Name: \(node.name)\n"
+        projectContext += "- This code will be part of a \(node.type.rawValue) project.\n"
+        
+        if let projectPath = node.projectPath {
+            projectContext += "- Project is located at: \(projectPath)\n"
+        }
+        
+        // Add connected nodes context if any
+        // This will be handled by the context parameter, but we can add a note
+        if !node.connections.isEmpty {
+            projectContext += "- This node connects to other nodes in the system.\n"
+        }
+        
+        return userPrompt + projectContext
     }
     
     private func generateStubCode(prompt: String, language: CodeLanguage, nodeContext: Node?) -> String {

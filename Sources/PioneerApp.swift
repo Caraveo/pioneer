@@ -37,10 +37,44 @@ struct PioneerApp: App {
         }
         .commands {
             CommandGroup(replacing: .newItem) {
+                Button("New Project") {
+                    projectManager.newProject()
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                
+                Divider()
+                
                 Button("New Node") {
                     projectManager.createNewNode()
                 }
                 .keyboardShortcut("n", modifiers: .command)
+            }
+            
+            CommandGroup(after: .saveItem) {
+                Button("Save Project As...") {
+                    projectManager.saveProjectAs()
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                
+                if projectManager.currentProjectPath != nil {
+                    Button("Save Project") {
+                        if let url = projectManager.currentProjectPath {
+                            do {
+                                try projectManager.saveProject(to: url)
+                            } catch {
+                                print("Failed to save: \(error)")
+                            }
+                        }
+                    }
+                    .keyboardShortcut("s", modifiers: .command)
+                }
+            }
+            
+            CommandGroup(replacing: .importExport) {
+                Button("Open Project...") {
+                    projectManager.openProject()
+                }
+                .keyboardShortcut("o", modifiers: .command)
             }
             
             CommandMenu("Generate") {

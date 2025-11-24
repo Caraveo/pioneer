@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import AppKit
 
 class ProjectManager: ObservableObject {
     @Published var nodes: [Node] = []
@@ -11,10 +12,98 @@ class ProjectManager: ObservableObject {
     @Published var hoveredConnectionPoint: (nodeId: UUID, isOutput: Bool)?
     
     private let pythonBridge = PythonBridge()
+    let nodeProjectService = NodeProjectService()
     @Published var aiService = AIService()
+    @Published var currentProjectPath: URL?
+    @Published var projectName: String = "Untitled Project"
     
     init() {
         // Create a default node for demonstration
+        createDefaultNodes()
+    }
+    
+    // MARK: - Project Save/Load
+    
+    func saveProject(to url: URL) throws {
+        let project = PioneerProject(
+            nodes: nodes,
+            canvasOffset: canvasOffset,
+            canvasScale: canvasScale
+        )
+        
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(project)
+        try data.write(to: url)
+        
+        currentProjectPath = url
+        projectName = url.deletingPathExtension().lastPathComponent
+    }
+    
+    func loadProject(from url: URL) throws {
+        let data = try Data(contentsOf: url)
+        let decoder = JSONDecoder()
+        let project = try decoder.decode(PioneerProject.self, from: data)
+        
+        nodes = project.nodes
+        canvasOffset = project.canvasOffset
+        canvasScale = project.canvasScale
+        currentProjectPath = url
+        projectName = url.deletingPathExtension().lastPathComponent
+        
+        // Initialize projects for all loaded nodes
+        Task {
+            for node in nodes {
+                await initializeNodeProject(node: node)
+            }
+        }
+    }
+    
+    func saveProjectAs() {
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.init(filenameExtension: "code")!]
+        savePanel.nameFieldStringValue = projectName
+        savePanel.title = "Save Pioneer Project"
+        savePanel.prompt = "Save"
+        
+        savePanel.begin { response in
+            if response == .OK, let url = savePanel.url {
+                do {
+                    try self.saveProject(to: url)
+                } catch {
+                    print("Failed to save project: \(error)")
+                }
+            }
+        }
+    }
+    
+    func openProject() {
+        let openPanel = NSOpenPanel()
+        openPanel.allowedContentTypes = [.init(filenameExtension: "code")!]
+        openPanel.title = "Open Pioneer Project"
+        openPanel.prompt = "Open"
+        openPanel.allowsMultipleSelection = false
+        
+        openPanel.begin { response in
+            if response == .OK, let url = openPanel.url {
+                do {
+                    try self.loadProject(from: url)
+                } catch {
+                    print("Failed to load project: \(error)")
+                }
+            }
+        }
+    }
+    
+    func newProject() {
+        nodes = []
+        canvasOffset = .zero
+        canvasScale = 1.0
+        selectedNode = nil
+        currentProjectPath = nil
+        projectName = "Untitled Project"
+        
+        // Create a default node
         createDefaultNodes()
     }
     
@@ -55,18 +144,60 @@ class ProjectManager: ObservableObject {
         nodes.append(newNode)
         selectedNode = newNode
         
-        // If it's a Python node, create its virtual environment
-        if newNode.language == .python {
-            Task {
-                await pythonBridge.ensureVirtualEnvironment(for: newNode)
+        // Create project structure for the node
+        Task {
+            await initializeNodeProject(node: newNode)
+        }
+    }
+    
+    private func initializeNodeProject(node: Node) async {
+        do {
+            // Create project structure
+            try await nodeProjectService.createProjectStructure(for: node)
+            
+            // Get project path and update node
+            let projectPath = nodeProjectService.getProjectPath(for: node)
+            
+            if let index = nodes.firstIndex(where: { $0.id == node.id }) {
+                nodes[index].projectPath = projectPath.path
+                
+                // If it's a Python node, create its virtual environment
+                if nodes[index].language == .python {
+                    await pythonBridge.ensureVirtualEnvironment(for: nodes[index])
+                }
+                
+                // Update selected node if it's the one we're working with
+                if selectedNode?.id == node.id {
+                    selectedNode = nodes[index]
+                }
             }
+        } catch {
+            print("Failed to create project structure for node \(node.name): \(error)")
         }
     }
     
     func updateNode(_ node: Node) {
         if let index = nodes.firstIndex(where: { $0.id == node.id }) {
             let oldLanguage = nodes[index].language
+            let oldProjectPath = nodes[index].projectPath
+            
             nodes[index] = node
+            
+            // Ensure project structure exists
+            if node.projectPath == nil || oldProjectPath != node.projectPath {
+                Task {
+                    await initializeNodeProject(node: node)
+                }
+            } else {
+                // Save code to project file
+                Task {
+                    do {
+                        try await nodeProjectService.saveMainCodeFile(node: node, projectPath: nodeProjectService.getProjectPath(for: node))
+                    } catch {
+                        print("Failed to save code file: \(error)")
+                    }
+                }
+            }
             
             // If language changed to Python, ensure virtual environment exists
             if node.language == .python && oldLanguage != .python {
@@ -86,6 +217,10 @@ class ProjectManager: ObservableObject {
                 selectedNode = node
             }
         }
+    }
+    
+    func openNodeProjectInFinder(_ node: Node) {
+        nodeProjectService.openProjectInFinder(for: node)
     }
     
     func deleteNode(_ node: Node) {
