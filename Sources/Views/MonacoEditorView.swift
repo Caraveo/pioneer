@@ -5,6 +5,7 @@ import WebKit
 struct MonacoEditorView: NSViewRepresentable {
     @Binding var text: String
     let language: CodeLanguage
+    let editorInstanceId: String // CRITICAL: Unique ID for each editor instance
     var onWebViewReady: ((WKWebView) -> Void)?
     @Environment(\.colorScheme) var colorScheme
     @AppStorage("appearance") private var appearance: AppearanceMode = .system
@@ -59,9 +60,12 @@ struct MonacoEditorView: NSViewRepresentable {
         let initialTheme = effectiveColorScheme == .dark ? "vs-dark" : "vs"
         context.coordinator.currentTheme = initialTheme
         
-        // Load Monaco Editor
-        let html = generateMonacoHTML(language: language, initialText: text, theme: initialTheme)
+        // CRITICAL: Load Monaco Editor with unique instance ID for isolation
+        let html = generateMonacoHTML(language: language, initialText: text, theme: initialTheme, instanceId: editorInstanceId)
         webView.loadHTMLString(html, baseURL: nil)
+        
+        // Store instance ID in coordinator
+        context.coordinator.instanceId = editorInstanceId
         
         context.coordinator.webView = webView
         context.coordinator.onWebViewReady = onWebViewReady
@@ -167,7 +171,7 @@ struct MonacoEditorView: NSViewRepresentable {
         }
     }
     
-    private func generateMonacoHTML(language: CodeLanguage, initialText: String, theme: String) -> String {
+    private func generateMonacoHTML(language: CodeLanguage, initialText: String, theme: String, instanceId: String) -> String {
         let monacoLanguage = languageToMonacoLanguage(language)
         let escapedText = initialText
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -204,7 +208,11 @@ struct MonacoEditorView: NSViewRepresentable {
                 require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@latest/min/vs' } });
                 
                 require(['vs/editor/editor.main'], function () {
-                    // Create editor with proper light theme
+                    // CRITICAL: Use unique instance ID to prevent cross-contamination
+                    const instanceId = '\(instanceId)';
+                    window.editorInstanceId = instanceId;
+                    
+                    // Create editor with proper light theme - ISOLATED INSTANCE
                     window.monacoEditor = monaco.editor.create(document.getElementById('container'), {
                         value: `\(escapedText)`,
                         language: '\(monacoLanguage)',
@@ -265,14 +273,34 @@ struct MonacoEditorView: NSViewRepresentable {
                     
                     // CRITICAL: Listen for keydown to ensure editor receives input
                     document.addEventListener('keydown', function(e) {
-                        if (window.monacoEditor && !window.monacoEditor.hasTextFocus()) {
+                        // CRITICAL: Don't prevent default - let Monaco handle all keyboard events
+                        if (window.monacoEditor) {
+                            if (!window.monacoEditor.hasTextFocus()) {
+                                window.monacoEditor.focus();
+                            }
+                            const editorDomNode = window.monacoEditor.getDomNode();
+                            if (editorDomNode) {
+                                const textarea = editorDomNode.querySelector('textarea');
+                                if (textarea && document.activeElement !== textarea) {
+                                    textarea.focus();
+                                }
+                            }
+                        }
+                    }, false); // Use capture: false so Monaco can handle it first
+                    
+                    // CRITICAL: Also listen on container for immediate keyboard input
+                    container.addEventListener('keydown', function(e) {
+                        if (window.monacoEditor) {
                             window.monacoEditor.focus();
                             const editorDomNode = window.monacoEditor.getDomNode();
                             if (editorDomNode) {
-                                editorDomNode.focus();
+                                const textarea = editorDomNode.querySelector('textarea');
+                                if (textarea) {
+                                    textarea.focus();
+                                }
                             }
                         }
-                    }, true); // Use capture: true to catch early
+                    }, false);
                     
                     // CRITICAL: Ensure editor is always editable
                     window.monacoEditor.updateOptions({
@@ -294,10 +322,11 @@ struct MonacoEditorView: NSViewRepresentable {
                     window.monacoEditor.onDidChangeModelContent(function() {
                         const value = window.monacoEditor.getValue();
                         
-                        // Notify Swift immediately
+                        // CRITICAL: Include instance ID to ensure correct node receives update
                         window.webkit.messageHandlers.pioneer.postMessage({
                             type: 'contentChanged',
-                            value: value
+                            value: value,
+                            instanceId: instanceId
                         });
                         
                         // Auto-save after 1 second of no changes (debounced)
@@ -305,7 +334,8 @@ struct MonacoEditorView: NSViewRepresentable {
                         saveTimeout = setTimeout(function() {
                             window.webkit.messageHandlers.pioneer.postMessage({
                                 type: 'autoSave',
-                                value: value
+                                value: value,
+                                instanceId: instanceId
                             });
                         }, 1000);
                     });
@@ -338,6 +368,7 @@ struct MonacoEditorView: NSViewRepresentable {
         var isUpdatingFromJS: Bool = false
         var onWebViewReady: ((WKWebView) -> Void)?
         var lastKnownContent: String = ""
+        var instanceId: String = "" // CRITICAL: Unique instance ID for isolation
         private var appearanceObserver: NSObjectProtocol?
         
         init(_ parent: MonacoEditorView) {
@@ -448,22 +479,34 @@ struct MonacoEditorView: NSViewRepresentable {
             
             switch type {
             case "contentChanged":
-                if let value = body["value"] as? String {
-                    lastKnownContent = value
-                    isUpdatingFromJS = true
-                    DispatchQueue.main.async {
-                        self.parent.text = value
-                        self.isUpdatingFromJS = false
+                if let value = body["value"] as? String,
+                   let messageInstanceId = body["instanceId"] as? String {
+                    // CRITICAL: Verify this message is for THIS editor instance
+                    if messageInstanceId == self.instanceId {
+                        lastKnownContent = value
+                        isUpdatingFromJS = true
+                        DispatchQueue.main.async {
+                            self.parent.text = value
+                            self.isUpdatingFromJS = false
+                        }
+                    } else {
+                        print("⚠️ WARNING: Received contentChanged for wrong instance! Expected \(self.instanceId), got \(messageInstanceId)")
                     }
                 }
                 
             case "autoSave":
-                if let value = body["value"] as? String {
-                    lastKnownContent = value
-                    // Trigger save in background
-                    DispatchQueue.main.async {
-                        // Update binding to trigger save
-                        self.parent.text = value
+                if let value = body["value"] as? String,
+                   let messageInstanceId = body["instanceId"] as? String {
+                    // CRITICAL: Verify this message is for THIS editor instance
+                    if messageInstanceId == self.instanceId {
+                        lastKnownContent = value
+                        // Trigger save in background
+                        DispatchQueue.main.async {
+                            // Update binding to trigger save
+                            self.parent.text = value
+                        }
+                    } else {
+                        print("⚠️ WARNING: Received autoSave for wrong instance! Expected \(self.instanceId), got \(messageInstanceId)")
                     }
                 }
                 

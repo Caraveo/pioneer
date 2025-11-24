@@ -99,45 +99,70 @@ struct CodeEditorView: View {
                     if let selectedFile = currentNode.selectedFile {
                         let editorKey = "\(currentNode.id.uuidString)-\(selectedFile.id.uuidString)"
                         
+                        // CRITICAL: Get content directly from the node's file - NEVER use shared state
+                        let fileContent: String = {
+                            if let fileId = currentNode.selectedFileId,
+                               let file = projectManager.nodes[nodeIndex].files.first(where: { $0.id == fileId }) {
+                                return file.content
+                            }
+                            return selectedFile.content
+                        }()
+                        
                         MonacoEditorView(
                             text: Binding(
                                 get: {
-                                    // Always get from the nodes array to ensure we have latest
-                                    if let fileId = currentNode.selectedFileId,
-                                       let file = projectManager.nodes[nodeIndex].files.first(where: { $0.id == fileId }) {
-                                        return file.content
+                                    // CRITICAL: Always get from the CURRENT node's file - ensure isolation
+                                    guard let currentNode = projectManager.selectedNode,
+                                          let currentIndex = projectManager.nodes.firstIndex(where: { $0.id == currentNode.id }),
+                                          let fileId = currentNode.selectedFileId,
+                                          let file = projectManager.nodes[currentIndex].files.first(where: { $0.id == fileId }) else {
+                                        return fileContent
                                     }
-                                    return selectedFile.content
+                                    // Verify we're getting the right node's content
+                                    if currentNode.id != projectManager.nodes[currentIndex].id {
+                                        print("⚠️ WARNING: Node ID mismatch! Expected \(currentNode.id), got \(projectManager.nodes[currentIndex].id)")
+                                    }
+                                    return file.content
                                 },
                                 set: { newValue in
-                                    // Update both the nodes array and selectedNode
-                                    if let fileId = currentNode.selectedFileId,
-                                       let fileIndex = projectManager.nodes[nodeIndex].files.firstIndex(where: { $0.id == fileId }) {
-                                        // Update in nodes array
-                                        projectManager.nodes[nodeIndex].files[fileIndex].content = newValue
-                                        
-                                        // Also update main code for backward compatibility
-                                        if fileIndex == 0 {
-                                            projectManager.nodes[nodeIndex].code = newValue
-                                        }
-                                        
-                                        // Update selectedNode to match
-                                        projectManager.selectedNode = projectManager.nodes[nodeIndex]
-                                        
-                                        // AUTO SAVE immediately to project file
-                                        Task {
-                                            await saveFileToProject(node: projectManager.nodes[nodeIndex], file: projectManager.nodes[nodeIndex].files[fileIndex])
-                                        }
-                                        
-                                        // Also save to nodes array (in-memory persistence)
-                                        projectManager.saveCurrentNodeFiles()
+                                    // CRITICAL: Update ONLY the current node's file - ensure isolation
+                                    guard let currentNode = projectManager.selectedNode,
+                                          let currentIndex = projectManager.nodes.firstIndex(where: { $0.id == currentNode.id }),
+                                          let fileId = currentNode.selectedFileId,
+                                          let fileIndex = projectManager.nodes[currentIndex].files.firstIndex(where: { $0.id == fileId }) else {
+                                        print("⚠️ ERROR: Cannot update - node or file not found")
+                                        return
+                                    }
+                                    
+                                    // Verify we're updating the right node
+                                    if currentNode.id != projectManager.nodes[currentIndex].id {
+                                        print("⚠️ WARNING: Updating wrong node! Expected \(currentNode.id), got \(projectManager.nodes[currentIndex].id)")
+                                        return
+                                    }
+                                    
+                                    // Update ONLY this node's file
+                                    projectManager.nodes[currentIndex].files[fileIndex].content = newValue
+                                    
+                                    // Also update main code for backward compatibility
+                                    if fileIndex == 0 {
+                                        projectManager.nodes[currentIndex].code = newValue
+                                    }
+                                    
+                                    // Update selectedNode to match
+                                    projectManager.selectedNode = projectManager.nodes[currentIndex]
+                                    
+                                    // AUTO SAVE immediately to project file
+                                    Task {
+                                        await saveFileToProject(node: projectManager.nodes[currentIndex], file: projectManager.nodes[currentIndex].files[fileIndex])
                                     }
                                 }
                             ),
                             language: selectedFile.language,
+                            editorInstanceId: editorKey, // CRITICAL: Unique instance ID for isolation
                             onWebViewReady: { webView in
                                 // Store webView per node+file combination
                                 webViewStore[editorKey] = webView
+                                print("✅ Stored webView for editor: \(editorKey) (Node: \(currentNode.name))")
                             }
                         )
                         .id(editorKey) // Unique ID per node+file - forces new instance
