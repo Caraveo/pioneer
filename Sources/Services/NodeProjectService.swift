@@ -42,8 +42,19 @@ class NodeProjectService {
             try await createBasicProjectStructure(node: node, projectPath: projectPath)
         }
         
-        // Save main code file
-        try await saveMainCodeFile(node: node, projectPath: projectPath)
+        // Save all files in the node's codebase
+        try await saveAllFiles(node: node, projectPath: projectPath)
+    }
+    
+    /// Save all files in a node's codebase
+    func saveAllFiles(node: Node, projectPath: URL) async throws {
+        for file in node.files {
+            let fileURL = projectPath.appendingPathComponent(file.path)
+            let directory = fileURL.deletingLastPathComponent()
+            
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try file.content.write(to: fileURL, atomically: true, encoding: .utf8)
+        }
     }
     
     private func createPythonProjectStructure(node: Node, projectPath: URL) async throws {

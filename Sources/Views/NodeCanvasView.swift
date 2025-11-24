@@ -216,12 +216,35 @@ struct NodeCanvasView: View {
                 
                 // Update the selected node's code
                 if let index = projectManager.nodes.firstIndex(where: { $0.id == selectedNode.id }) {
-                    projectManager.nodes[index].code = codeOnly
+                    // Update main file or create new file if none exists
+                    if let fileId = projectManager.nodes[index].selectedFileId,
+                       let fileIndex = projectManager.nodes[index].files.firstIndex(where: { $0.id == fileId }) {
+                        // Update existing selected file
+                        projectManager.nodes[index].files[fileIndex].content = codeOnly
+                        projectManager.nodes[index].code = codeOnly
+                    } else if let firstFile = projectManager.nodes[index].files.first {
+                        // Update first file if no file is selected
+                        let fileIndex = projectManager.nodes[index].files.firstIndex(where: { $0.id == firstFile.id })!
+                        projectManager.nodes[index].files[fileIndex].content = codeOnly
+                        projectManager.nodes[index].code = codeOnly
+                        projectManager.nodes[index].selectedFileId = firstFile.id
+                    } else {
+                        // Create main file if no files exist
+                        let mainFile = ProjectFile(
+                            path: getMainFilePath(for: projectManager.nodes[index].language),
+                            name: getMainFileName(for: projectManager.nodes[index].language),
+                            content: codeOnly,
+                            language: projectManager.nodes[index].language
+                        )
+                        projectManager.nodes[index].files.append(mainFile)
+                        projectManager.nodes[index].selectedFileId = mainFile.id
+                        projectManager.nodes[index].code = codeOnly
+                    }
                     
-                    // Save code to project file
+                    // Save all files to project
                     do {
                         let projectPath = projectManager.nodeProjectService.getProjectPath(for: selectedNode)
-                        try await projectManager.nodeProjectService.saveMainCodeFile(node: projectManager.nodes[index], projectPath: projectPath)
+                        try await projectManager.nodeProjectService.saveAllFiles(node: projectManager.nodes[index], projectPath: projectPath)
                         
                         // Update project path if not set
                         if projectManager.nodes[index].projectPath == nil {
@@ -250,6 +273,46 @@ struct NodeCanvasView: View {
                     }
                 }
             }
+        }
+    }
+    
+    private func getMainFilePath(for language: CodeLanguage) -> String {
+        switch language {
+        case .python: return "src/main.py"
+        case .swift: return "Sources/main.swift"
+        case .typescript: return "src/index.ts"
+        case .javascript: return "src/index.js"
+        case .html: return "index.html"
+        case .css: return "css/style.css"
+        case .dockerfile: return "Dockerfile"
+        case .kubernetes, .yaml: return "config.yaml"
+        case .terraform: return "main.tf"
+        case .cloudformation: return "template.yaml"
+        case .json: return "config.json"
+        case .sql: return "schema.sql"
+        case .bash: return "script.sh"
+        case .markdown: return "README.md"
+        case .scaffolding: return "scaffold.txt"
+        }
+    }
+    
+    private func getMainFileName(for language: CodeLanguage) -> String {
+        switch language {
+        case .python: return "main.py"
+        case .swift: return "main.swift"
+        case .typescript: return "index.ts"
+        case .javascript: return "index.js"
+        case .html: return "index.html"
+        case .css: return "style.css"
+        case .dockerfile: return "Dockerfile"
+        case .kubernetes, .yaml: return "config.yaml"
+        case .terraform: return "main.tf"
+        case .cloudformation: return "template.yaml"
+        case .json: return "config.json"
+        case .sql: return "schema.sql"
+        case .bash: return "script.sh"
+        case .markdown: return "README.md"
+        case .scaffolding: return "scaffold.txt"
         }
     }
     

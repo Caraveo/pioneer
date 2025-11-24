@@ -139,7 +139,15 @@ class ProjectManager: ObservableObject {
                 y: 200 + CGFloat(nodes.count) * 50
             ),
             code: "",
-            language: .swift
+            language: .swift,
+            files: [
+                ProjectFile(
+                    path: "Sources/main.swift",
+                    name: "main.swift",
+                    content: "",
+                    language: .swift
+                )
+            ]
         )
         nodes.append(newNode)
         selectedNode = newNode
