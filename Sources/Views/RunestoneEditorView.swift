@@ -48,10 +48,39 @@ struct RunestoneEditorView: NSViewRepresentable {
         
         // Store text view reference in coordinator
         context.coordinator.textView = textView
+        context.coordinator.scrollView = scrollView
         
-        // Make text view first responder when view appears
+        // Add click gesture to force focus
+        let clickGesture = NSClickGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleClick(_:)))
+        scrollView.addGestureRecognizer(clickGesture)
+        
+        // Observe window notifications to force focus
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.windowDidBecomeKey(_:)),
+            name: NSWindow.didBecomeKeyNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.windowDidBecomeMain(_:)),
+            name: NSWindow.didBecomeMainNotification,
+            object: nil
+        )
+        
+        // Force focus immediately and on next run loop
         DispatchQueue.main.async {
-            textView.window?.makeFirstResponder(textView)
+            if let window = textView.window {
+                window.makeFirstResponder(textView)
+            }
+        }
+        
+        // Also try after a short delay to ensure window is ready
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            if let window = textView.window {
+                window.makeFirstResponder(textView)
+            }
         }
         
         return scrollView
@@ -93,6 +122,7 @@ struct RunestoneEditorView: NSViewRepresentable {
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: RunestoneEditorView
         weak var textView: CodeEditorTextView?
+        weak var scrollView: NSScrollView?
         
         init(_ parent: RunestoneEditorView) {
             self.parent = parent
@@ -111,6 +141,35 @@ struct RunestoneEditorView: NSViewRepresentable {
                     window.makeFirstResponder(textView)
                 }
             }
+        }
+        
+        @objc func handleClick(_ sender: NSClickGestureRecognizer) {
+            // Force focus on click
+            if let textView = textView, let window = textView.window {
+                window.makeFirstResponder(textView)
+            }
+        }
+        
+        @objc func windowDidBecomeKey(_ notification: Notification) {
+            // When window becomes key, ensure text view has focus
+            if let textView = textView, let window = textView.window {
+                if window.firstResponder != textView {
+                    window.makeFirstResponder(textView)
+                }
+            }
+        }
+        
+        @objc func windowDidBecomeMain(_ notification: Notification) {
+            // When window becomes main, ensure text view has focus
+            if let textView = textView, let window = textView.window {
+                if window.firstResponder != textView {
+                    window.makeFirstResponder(textView)
+                }
+            }
+        }
+        
+        deinit {
+            NotificationCenter.default.removeObserver(self)
         }
     }
 }
@@ -182,6 +241,38 @@ class CodeEditorTextView: NSTextView {
             window?.makeFirstResponder(self)
         }
         return result
+    }
+    
+    override func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event)
+        // Force focus on mouse click
+        if let window = window {
+            window.makeFirstResponder(self)
+        }
+    }
+    
+    override func keyDown(with event: NSEvent) {
+        // Ensure we're first responder before handling key events
+        if let window = window {
+            if window.firstResponder != self {
+                window.makeFirstResponder(self)
+                // If still not first responder, try again
+                if window.firstResponder != self {
+                    DispatchQueue.main.async {
+                        window.makeFirstResponder(self)
+                    }
+                }
+            }
+        }
+        super.keyDown(with: event)
+    }
+    
+    override func insertText(_ string: Any) {
+        // Ensure we have focus before inserting text
+        if let window = window, window.firstResponder != self {
+            window.makeFirstResponder(self)
+        }
+        super.insertText(string)
     }
     
     func applySyntaxHighlighting() {

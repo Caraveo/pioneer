@@ -70,6 +70,15 @@ struct CodeEditorView: View {
                 )
                 .frame(minWidth: 0, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
                 .background(Color(NSColor.textBackgroundColor))
+                .onTapGesture {
+                    // Force focus when tapping the editor area
+                    DispatchQueue.main.async {
+                        if let window = NSApplication.shared.keyWindow,
+                           let firstResponder = window.firstResponder as? CodeEditorTextView {
+                            window.makeFirstResponder(firstResponder)
+                        }
+                    }
+                }
             } else {
                 VStack {
                     Image(systemName: "doc.text")
