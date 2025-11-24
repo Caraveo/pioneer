@@ -306,6 +306,21 @@ class NodeProjectService {
         return files
     }
     
+    /// Delete a file from the project directory
+    func deleteFile(node: Node, file: ProjectFile) async throws {
+        guard let projectPath = node.projectPath,
+              let url = URL(string: projectPath) else {
+            return
+        }
+        
+        let fileURL = url.appendingPathComponent(file.path)
+        
+        // Check if file exists before trying to delete
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try FileManager.default.removeItem(at: fileURL)
+        }
+    }
+    
     /// Open project in Finder
     func openProjectInFinder(for node: Node) {
         let projectPath = getProjectPath(for: node)

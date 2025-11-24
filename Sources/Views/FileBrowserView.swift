@@ -101,12 +101,42 @@ struct FileBrowserView: View {
         projectManager.saveCurrentNodeFiles()
         
         guard let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }),
-              index < projectManager.nodes.count else {
+              index < projectManager.nodes.count,
+              let fileToDelete = projectManager.nodes[index].files.first(where: { $0.id == fileId }) else {
             return
         }
         
-        // Remove the file
-        projectManager.nodes[index].files.removeAll { $0.id == fileId }
+        // Don't allow deleting the last file (must keep at least one)
+        if projectManager.nodes[index].files.count <= 1 {
+            // Create a new main file if trying to delete the last one
+            let mainFile = projectManager.nodes[index].getOrCreateMainFile()
+            if mainFile.id != fileId {
+                // Only delete if it's not the main file
+                // Remove the file from the array
+                projectManager.nodes[index].files.removeAll { $0.id == fileId }
+                
+                // Delete from disk
+                Task {
+                    do {
+                        try await projectManager.nodeProjectService.deleteFile(node: projectManager.nodes[index], file: fileToDelete)
+                    } catch {
+                        print("Failed to delete file from disk: \(error)")
+                    }
+                }
+            }
+        } else {
+            // Remove the file from the array
+            projectManager.nodes[index].files.removeAll { $0.id == fileId }
+            
+            // Delete from disk
+            Task {
+                do {
+                    try await projectManager.nodeProjectService.deleteFile(node: projectManager.nodes[index], file: fileToDelete)
+                } catch {
+                    print("Failed to delete file from disk: \(error)")
+                }
+            }
+        }
         
         // If deleted file was selected, select first file or none
         if projectManager.nodes[index].selectedFileId == fileId {
@@ -132,6 +162,8 @@ struct FileRowView: View {
     let onSelect: () -> Void
     let onDelete: () -> Void
     
+    @State private var isHovered = false
+    
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: fileIcon(for: file.language))
@@ -148,11 +180,12 @@ struct FileRowView: View {
             
             Button(action: onDelete) {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 12))
+                    .foregroundColor(isHovered ? .red : .secondary)
             }
             .buttonStyle(.borderless)
-            .opacity(0)
+            .opacity(isHovered ? 1.0 : 0.0)
+            .help("Delete file")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
@@ -162,7 +195,9 @@ struct FileRowView: View {
             onSelect()
         }
         .onHover { hovering in
-            // Show delete button on hover
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
         }
     }
     
