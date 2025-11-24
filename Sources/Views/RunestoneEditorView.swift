@@ -6,8 +6,17 @@ struct RunestoneEditorView: NSViewRepresentable {
     @Binding var text: String
     let language: CodeLanguage
     
-    func makeNSView(context: Context) -> CodeEditorTextView {
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        
         let textContainer = NSTextContainer()
+        textContainer.widthTracksTextView = true
+        textContainer.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        
         let layoutManager = NSLayoutManager()
         layoutManager.addTextContainer(textContainer)
         
@@ -19,32 +28,57 @@ struct RunestoneEditorView: NSViewRepresentable {
         textView.string = text
         textView.language = language
         textView.isEditable = true
+        textView.isSelectable = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.allowsUndo = true
+        
+        // Enable focus
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.minSize = NSSize(width: 0, height: 0)
         
         // Set up text change handler
         textView.delegate = context.coordinator
         
-        return textView
+        scrollView.documentView = textView
+        
+        // Store text view reference in coordinator
+        context.coordinator.textView = textView
+        
+        // Make text view first responder when view appears
+        DispatchQueue.main.async {
+            textView.window?.makeFirstResponder(textView)
+        }
+        
+        return scrollView
     }
     
-    func updateNSView(_ nsView: CodeEditorTextView, context: Context) {
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        guard let textView = nsView.documentView as? CodeEditorTextView else { return }
+        
         // Only update if text actually changed (to avoid cursor jumping)
-        if nsView.string != text {
-            let selectedRange = nsView.selectedRange()
-            nsView.string = text
+        if textView.string != text {
+            let selectedRange = textView.selectedRange()
+            textView.string = text
             // Restore cursor position if possible
             if selectedRange.location <= text.count {
-                nsView.setSelectedRange(selectedRange)
+                textView.setSelectedRange(selectedRange)
             }
         }
         
         // Update language if changed
-        if nsView.language != language {
-            nsView.language = language
-            nsView.applySyntaxHighlighting()
+        if textView.language != language {
+            textView.language = language
+            textView.applySyntaxHighlighting()
+        }
+        
+        // Ensure focus
+        if !textView.window?.firstResponder.isEqual(textView) ?? true {
+            textView.window?.makeFirstResponder(textView)
         }
     }
     
@@ -54,6 +88,7 @@ struct RunestoneEditorView: NSViewRepresentable {
     
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: RunestoneEditorView
+        weak var textView: CodeEditorTextView?
         
         init(_ parent: RunestoneEditorView) {
             self.parent = parent
@@ -62,6 +97,15 @@ struct RunestoneEditorView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             if let textView = notification.object as? NSTextView {
                 parent.text = textView.string
+            }
+        }
+        
+        func textViewDidChangeSelection(_ notification: Notification) {
+            // Ensure text view maintains focus
+            if let textView = textView, let window = textView.window {
+                if !window.firstResponder.isEqual(textView) {
+                    window.makeFirstResponder(textView)
+                }
             }
         }
     }
@@ -97,10 +141,13 @@ class CodeEditorTextView: NSTextView {
         textColor = .labelColor
         backgroundColor = .textBackgroundColor
         isRichText = false
+        isEditable = true
+        isSelectable = true
         isAutomaticQuoteSubstitutionEnabled = false
         isAutomaticDashSubstitutionEnabled = false
         isAutomaticTextReplacementEnabled = false
         isAutomaticSpellingCorrectionEnabled = false
+        allowsUndo = true
         
         // Enable line numbers
         if let scrollView = enclosingScrollView {
@@ -118,6 +165,19 @@ class CodeEditorTextView: NSTextView {
         
         // Apply initial syntax highlighting
         applySyntaxHighlighting()
+    }
+    
+    override var acceptsFirstResponder: Bool {
+        return true
+    }
+    
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        if result {
+            // Ensure we can receive keyboard events
+            window?.makeFirstResponder(self)
+        }
+        return result
     }
     
     func applySyntaxHighlighting() {
