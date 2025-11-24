@@ -4,13 +4,11 @@ import Combine
 import AppKit
 
 enum ViewMode: String, CaseIterable {
-    case ai = "AI"
     case nodeCanvas = "NODE CANVAS"
     case editor = "EDITOR MODE"
     
     var icon: String {
         switch self {
-        case .ai: return "sparkles"
         case .nodeCanvas: return "square.grid.2x2"
         case .editor: return "doc.text"
         }

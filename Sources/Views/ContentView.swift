@@ -22,21 +22,16 @@ struct ContentView: View {
                 // Content based on view mode
                 Group {
                     switch projectManager.viewMode {
-                    case .ai:
-                        // AI Mode - Show AI interface
-                        AIModeView()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    
                     case .nodeCanvas:
-                        // Node Canvas Mode - Show node canvas and editor
+                        // Node Canvas Mode - Show node canvas and property bar
                         HSplitView {
                             // Node canvas
                             NodeCanvasView()
                                 .frame(minWidth: 400)
                             
-                            // Code editor
-                            CodeEditorView()
-                                .frame(minWidth: 300, idealWidth: 400, maxWidth: 600)
+                            // Property bar
+                            PropertyBarView()
+                                .frame(minWidth: 250, idealWidth: 300, maxWidth: 400)
                         }
                     
                     case .editor:
