@@ -8,7 +8,7 @@ struct MonacoEditorView: NSViewRepresentable {
     var onWebViewReady: ((WKWebView) -> Void)?
     @Environment(\.colorScheme) var colorScheme
     
-    func makeNSView(context: Context) -> WKWebView {
+    func makeNSView(context: Context) -> NSView {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.add(context.coordinator, name: "pioneer")
         
