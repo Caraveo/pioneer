@@ -102,8 +102,8 @@ struct RunestoneEditorView: NSViewRepresentable {
         
         func textViewDidChangeSelection(_ notification: Notification) {
             // Ensure text view maintains focus
-            if let textView = textView, let window = textView.window {
-                if !window.firstResponder.isEqual(textView) {
+            if let textView = textView, let window = textView.window, let firstResponder = window.firstResponder {
+                if !firstResponder.isEqual(textView) {
                     window.makeFirstResponder(textView)
                 }
             }
