@@ -53,7 +53,7 @@ struct Node: Identifiable, Codable {
     var type: NodeType
     var position: CGPoint
     var code: String // Main/entry file content (for backward compatibility)
-    var language: CodeLanguage
+    var framework: Framework // Framework/Infrastructure choice
     var connections: [UUID] // IDs of connected nodes
     var projectPath: String? // Path to this node's project directory
     var pythonEnvironmentPath: String? // Path to virtual environment for Python nodes
@@ -61,13 +61,19 @@ struct Node: Identifiable, Codable {
     var files: [ProjectFile] // All files in this node's codebase
     var selectedFileId: UUID? // Currently selected file
     
-    init(id: UUID = UUID(), name: String, type: NodeType, position: CGPoint = .zero, code: String = "", language: CodeLanguage = .swift, connections: [UUID] = [], projectPath: String? = nil, pythonEnvironmentPath: String? = nil, pythonRequirements: String = "", files: [ProjectFile] = [], selectedFileId: UUID? = nil) {
+    // Backward compatibility: language property (deprecated, use framework)
+    var language: CodeLanguage {
+        get { framework.primaryLanguage }
+        set { /* Ignored - use framework instead */ }
+    }
+    
+    init(id: UUID = UUID(), name: String, type: NodeType, position: CGPoint = .zero, code: String = "", framework: Framework = .swift, connections: [UUID] = [], projectPath: String? = nil, pythonEnvironmentPath: String? = nil, pythonRequirements: String = "", files: [ProjectFile] = [], selectedFileId: UUID? = nil) {
         self.id = id
         self.name = name
         self.type = type
         self.position = position
         self.code = code
-        self.language = language
+        self.framework = framework
         self.connections = connections
         self.projectPath = projectPath
         self.pythonEnvironmentPath = pythonEnvironmentPath
@@ -83,15 +89,18 @@ struct Node: Identifiable, Codable {
             if !code.isEmpty {
                 mainFileContent = code
             } else {
-                // Use default template based on language
-                mainFileContent = Node.getDefaultCodeTemplate(for: language, nodeName: name, directoryName: projectDirectoryName)
+                // Use framework template
+                mainFileContent = framework.getTemplate(name: name)
             }
             
+            let launchPath = framework.launchFile
+            let launchFileName = (launchPath as NSString).lastPathComponent
+            
             let mainFile = ProjectFile(
-                path: getMainFilePath(for: language),
-                name: getMainFileName(for: language),
+                path: launchPath,
+                name: launchFileName,
                 content: mainFileContent,
-                language: language
+                language: framework.primaryLanguage
             )
             self.files = [mainFile]
             self.selectedFileId = mainFile.id
@@ -118,62 +127,30 @@ struct Node: Identifiable, Codable {
         return files.first { $0.id == selectedFileId }
     }
     
-    /// Get main file path for a language
-    func getMainFilePath(for language: CodeLanguage) -> String {
-        switch language {
-        case .python: return "src/main.py"
-        case .swift: return "Sources/app.swift"
-        case .typescript: return "src/index.ts"
-        case .javascript: return "src/index.js"
-        case .html: return "index.html"
-        case .css: return "css/style.css"
-        case .dockerfile: return "Dockerfile"
-        case .kubernetes, .yaml: return "\(projectDirectoryName).yaml"
-        case .terraform: return "main.tf"
-        case .cloudformation: return "template.yaml"
-        case .json: return "config.json"
-        case .sql: return "schema.sql"
-        case .bash: return "script.sh"
-        case .markdown: return "README.md"
-        case .scaffolding: return "scaffold.txt"
-        }
+    /// Get main file path for a framework (launch file)
+    func getMainFilePath(for framework: Framework) -> String {
+        return framework.launchFile
     }
     
-    /// Get main file name for a language
-    func getMainFileName(for language: CodeLanguage) -> String {
-        switch language {
-        case .python: return "main.py"
-        case .swift: return "app.swift"
-        case .typescript: return "index.ts"
-        case .javascript: return "index.js"
-        case .html: return "index.html"
-        case .css: return "style.css"
-        case .dockerfile: return "Dockerfile"
-        case .kubernetes, .yaml: return "\(projectDirectoryName).yaml"
-        case .terraform: return "main.tf"
-        case .cloudformation: return "template.yaml"
-        case .json: return "config.json"
-        case .sql: return "schema.sql"
-        case .bash: return "script.sh"
-        case .markdown: return "README.md"
-        case .scaffolding: return "scaffold.txt"
-        }
+    /// Get main file name for a framework
+    func getMainFileName(for framework: Framework) -> String {
+        return (framework.launchFile as NSString).lastPathComponent
     }
     
     /// Get or create the main file for this node
     mutating func getOrCreateMainFile() -> ProjectFile {
         // Check if main file already exists
-        let mainPath = getMainFilePath(for: language)
+        let mainPath = framework.launchFile
         if let existingFile = files.first(where: { $0.path == mainPath }) {
             return existingFile
         }
         
-        // Create new main file
+        // Create new main file using framework template
         let mainFile = ProjectFile(
             path: mainPath,
-            name: getMainFileName(for: language),
-            content: code.isEmpty ? getDefaultCodeForLanguage(language) : code,
-            language: language
+            name: getMainFileName(for: framework),
+            content: code.isEmpty ? framework.getTemplate(name: name) : code,
+            language: framework.primaryLanguage
         )
         files.append(mainFile)
         selectedFileId = mainFile.id

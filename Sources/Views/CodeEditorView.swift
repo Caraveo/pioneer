@@ -71,7 +71,7 @@ struct CodeEditorView: View {
                             Spacer()
                             
                             Picker("Language", selection: Binding(
-                                get: { currentNode.selectedFile?.language ?? currentNode.language },
+                                get: { currentNode.selectedFile?.language ?? currentNode.framework.primaryLanguage },
                                 set: { newLanguage in
                                     projectManager.saveCurrentNodeFiles()
                                     // Always look up node index fresh
@@ -222,11 +222,11 @@ struct CodeEditorView: View {
     }
     
     private func saveFileToProject(node: Node, file: ProjectFile) async {
-        guard let projectPath = node.projectPath,
-              let url = URL(string: projectPath) else {
+        guard let projectPath = node.projectPath else {
             return
         }
         
+        let url = URL(fileURLWithPath: projectPath)
         let fileURL = url.appendingPathComponent(file.path)
         let directory = fileURL.deletingLastPathComponent()
         

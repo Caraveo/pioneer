@@ -31,8 +31,7 @@ struct SidebarView: View {
                 set: { newId in
                     // Get webView for current node before switching
                     if let currentNode = projectManager.selectedNode,
-                       let fileId = currentNode.selectedFileId {
-                        let editorKey = "\(currentNode.id.uuidString)-\(fileId.uuidString)"
+                       currentNode.selectedFileId != nil {
                         // Access webViewStore through a notification or callback
                         // For now, save immediately from nodes array
                         projectManager.saveCurrentNodeFiles()

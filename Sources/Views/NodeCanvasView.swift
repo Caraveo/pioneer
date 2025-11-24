@@ -34,7 +34,7 @@ struct NodeCanvasView: View {
                         ConnectionView(
                             from: fromPoint,
                             to: toPoint,
-                            color: fromNode.language.color,
+                            color: fromNode.framework.color,
                             isTemporary: true
                         )
                     }
@@ -46,7 +46,7 @@ struct NodeCanvasView: View {
                                 ConnectionView(
                                     from: getConnectionPoint(for: node, isOutput: true),
                                     to: getConnectionPoint(for: targetNode, isOutput: false),
-                                    color: node.language.color
+                                    color: node.framework.color
                                 )
                             }
                         }
@@ -212,7 +212,7 @@ struct NodeCanvasView: View {
             
             if let generatedCode = await projectManager.aiService.generateCode(
                 prompt: aiPrompt,
-                language: selectedNode.language,
+                framework: selectedNode.framework,
                 nodeContext: selectedNode,
                 connectedNodes: connectedNodes,
                 allNodes: projectManager.nodes
@@ -234,7 +234,7 @@ struct NodeCanvasView: View {
                     
                     // Save all files to project
                     do {
-                        let projectPath = projectManager.nodeProjectService.getProjectPath(for: selectedNode)
+                        let projectPath = projectManager.nodeProjectService.getProjectPath(for: selectedNode, projectName: projectManager.projectName)
                         try await projectManager.nodeProjectService.saveAllFiles(node: projectManager.nodes[index], projectPath: projectPath)
                         
                         // Update project path if not set
@@ -325,6 +325,8 @@ struct NodeView: View {
     let node: Node
     let hoveredConnectionPoint: (nodeId: UUID, isOutput: Bool)?
     @EnvironmentObject var projectManager: ProjectManager
+    @State private var isRenaming = false
+    @State private var renameText = ""
     
     var isSelected: Bool {
         projectManager.selectedNode?.id == node.id
@@ -343,15 +345,32 @@ struct NodeView: View {
             // Header
             HStack {
                 Image(systemName: node.type.icon)
-                    .foregroundColor(node.language.color)
-                Text(node.name)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(isSelected ? .primary : .primary)
+                    .foregroundColor(node.framework.color)
+                
+                if isRenaming {
+                    TextField("Node name", text: $renameText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13, weight: .semibold))
+                        .onSubmit {
+                            finishRenaming()
+                        }
+                        .onAppear {
+                            renameText = node.name
+                        }
+                } else {
+                    Text(node.name)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(isSelected ? .primary : .primary)
+                        .onTapGesture(count: 2) {
+                            startRenaming()
+                        }
+                }
+                
                 Spacer()
                 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(node.language.color)
+                        .foregroundColor(node.framework.color)
                         .font(.system(size: 14))
                 }
             }
@@ -363,12 +382,12 @@ struct NodeView: View {
             // Content preview
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Image(systemName: node.language.icon)
+                    Image(systemName: node.framework.icon)
                         .font(.system(size: 10))
-                        .foregroundColor(node.language.color)
-                    Text(node.language.rawValue)
+                        .foregroundColor(node.framework.color)
+                    Text(node.framework.rawValue)
                         .font(.system(size: 10))
-                        .foregroundColor(node.language.color)
+                        .foregroundColor(node.framework.color)
                 }
                 .padding(.horizontal, 12)
                 
@@ -396,7 +415,7 @@ struct NodeView: View {
                     isOutput: false,
                     isConnected: hasInputConnections,
                     isHovered: hoveredConnectionPoint?.nodeId == node.id && hoveredConnectionPoint?.isOutput == false,
-                    color: node.language.color
+                    color: node.framework.color
                 )
                 
                 Spacer()
@@ -407,7 +426,7 @@ struct NodeView: View {
                     isOutput: true,
                     isConnected: hasOutputConnections,
                     isHovered: hoveredConnectionPoint?.nodeId == node.id && hoveredConnectionPoint?.isOutput == true,
-                    color: node.language.color
+                    color: node.framework.color
                 )
             }
             .padding(.horizontal, 12)
@@ -430,6 +449,62 @@ struct NodeView: View {
                     y: 2
                 )
         )
+        .onChange(of: isRenaming) { newValue in
+            if !newValue && !renameText.isEmpty && renameText != node.name {
+                finishRenaming()
+            }
+        }
+    }
+    
+    private func startRenaming() {
+        renameText = node.name
+        isRenaming = true
+    }
+    
+    private func finishRenaming() {
+        guard let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }) else { return }
+        
+        let newName = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty && newName != node.name else {
+            isRenaming = false
+            return
+        }
+        
+        let oldName = projectManager.nodes[index].name
+        projectManager.nodes[index].name = newName
+        
+        // Rename directory in file system if it exists
+        if let oldProjectPath = projectManager.nodes[index].projectPath {
+            let oldURL = URL(fileURLWithPath: oldProjectPath)
+            let parentDir = oldURL.deletingLastPathComponent()
+            let newDirName = sanitizeDirectoryName(newName)
+            let newURL = parentDir.appendingPathComponent(newDirName)
+            
+            // Only rename if the directory name would actually change
+            if oldURL.lastPathComponent != newDirName {
+                do {
+                    if FileManager.default.fileExists(atPath: oldURL.path) {
+                        try FileManager.default.moveItem(at: oldURL, to: newURL)
+                        projectManager.nodes[index].projectPath = newURL.path
+                    }
+                } catch {
+                    print("Failed to rename node directory: \(error)")
+                    // Revert name change on error
+                    projectManager.nodes[index].name = oldName
+                }
+            }
+        }
+        
+        projectManager.selectedNode = projectManager.nodes[index]
+        isRenaming = false
+    }
+    
+    private func sanitizeDirectoryName(_ name: String) -> String {
+        return name
+            .replacingOccurrences(of: " ", with: "-")
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: "\\", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
     }
 }
 

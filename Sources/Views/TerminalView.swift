@@ -113,8 +113,8 @@ struct TerminalView: View {
             return "$ "
         }
         
-        if let projectPath = node.projectPath,
-           let url = URL(string: projectPath) {
+        if let projectPath = node.projectPath {
+            let url = URL(fileURLWithPath: projectPath)
             let path = url.lastPathComponent
             return "\(path) $ "
         }
@@ -136,12 +136,10 @@ struct TerminalView: View {
         isRunning = true
         
         // Execute command
-        Task {
+        Task { @MainActor in
             let output = await runCommand(command)
-            await MainActor.run {
-                appendOutput(output)
-                isRunning = false
-            }
+            appendOutput(output)
+            isRunning = false
         }
     }
     
@@ -152,59 +150,28 @@ struct TerminalView: View {
         
         // Get working directory
         let workingDirectory: URL
-        if let projectPath = node.projectPath,
-           let url = URL(string: projectPath) {
-            workingDirectory = url
+        if let projectPath = node.projectPath {
+            workingDirectory = URL(fileURLWithPath: projectPath)
         } else {
             // Fallback to node's project path from service
-            workingDirectory = projectManager.nodeProjectService.getProjectPath(for: node)
+            workingDirectory = projectManager.nodeProjectService.getProjectPath(for: node, projectName: projectManager.projectName)
         }
         
-        return await withCheckedContinuation { continuation in
-            // Run process on background thread to avoid blocking
-            DispatchQueue.global(qos: .userInitiated).async {
-                // Create process
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/bin/bash")
-                process.arguments = ["-c", command]
-                process.currentDirectoryURL = workingDirectory
-                
-                // Set up pipes
-                let outputPipe = Pipe()
-                let errorPipe = Pipe()
-                process.standardOutput = outputPipe
-                process.standardError = errorPipe
-                
-                // Set up termination handler
-                process.terminationHandler = { process in
-                    // Read output after process finishes
-                    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                    let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                    
-                    var result = ""
-                    
-                    if let output = String(data: outputData, encoding: .utf8), !output.isEmpty {
-                        result += output
-                    }
-                    
-                    if let error = String(data: errorData, encoding: .utf8), !error.isEmpty {
-                        result += error
-                    }
-                    
-                    if result.isEmpty {
-                        result = process.terminationStatus == 0 ? "" : "Command exited with status \(process.terminationStatus)\n"
-                    }
-                    
-                    continuation.resume(returning: result)
-                }
-                
-                do {
-                    try process.run()
-                } catch {
-                    continuation.resume(returning: "Error: \(error.localizedDescription)\n")
-                }
+        // Validate working directory exists, create if needed
+        let fileManager = FileManager.default
+        var isDirectory: ObjCBool = false
+        let directoryExists = fileManager.fileExists(atPath: workingDirectory.path, isDirectory: &isDirectory)
+        
+        if !directoryExists || !isDirectory.boolValue {
+            // Try to create the directory
+            do {
+                try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+            } catch {
+                return "Error: Working directory does not exist and could not be created: \(workingDirectory.path)\n\(error.localizedDescription)\n"
             }
         }
+        
+        return await runCommand(command, workingDirectory: workingDirectory)
     }
     
     private func appendOutput(_ text: String) {
@@ -242,11 +209,11 @@ struct TerminalView: View {
     private func executeProject(node: Node) async -> String {
         // Get working directory
         let workingDirectory: URL
-        if let projectPath = node.projectPath,
-           let url = URL(string: projectPath) {
-            workingDirectory = url
+        if let projectPath = node.projectPath {
+            workingDirectory = URL(fileURLWithPath: projectPath)
         } else {
-            workingDirectory = projectManager.nodeProjectService.getProjectPath(for: node)
+            // Fallback to node's project path from service
+            workingDirectory = projectManager.nodeProjectService.getProjectPath(for: node, projectName: projectManager.projectName)
         }
         
         // Get main file from node's files or use selected file
@@ -256,14 +223,14 @@ struct TerminalView: View {
         } else if let firstFile = node.files.first {
             mainFile = firstFile
         } else {
-            // Create main file path based on language
-            let mainFilePath = node.getMainFilePath(for: node.language)
-            let mainFileName = node.getMainFileName(for: node.language)
+            // Create main file path based on framework
+            let mainFilePath = node.getMainFilePath(for: node.framework)
+            let mainFileName = node.getMainFileName(for: node.framework)
             mainFile = ProjectFile(
                 path: mainFilePath,
                 name: mainFileName,
                 content: node.code,
-                language: node.language
+                language: node.framework.primaryLanguage
             )
         }
         
@@ -274,39 +241,42 @@ struct TerminalView: View {
             return "Error: Main file not found at \(mainFile.path)\nPlease save your files first.\n"
         }
         
-        // Execute based on language
-        switch node.language {
-        case .python:
+        // Execute based on framework
+        switch node.framework {
+        case .django, .flask, .fastapi, .purepy:
             return await runPythonProject(node: node, workingDirectory: workingDirectory, mainFile: mainFile)
-        case .javascript, .typescript:
+        case .nodejs, .angular, .react, .vue, .nextjs, .express, .nestjs:
             return await runJavaScriptProject(node: node, workingDirectory: workingDirectory, mainFile: mainFile)
-        case .swift:
+        case .swift, .swiftui:
             return await runSwiftProject(node: node, workingDirectory: workingDirectory, mainFile: mainFile)
-        case .html, .css:
-            return await runWebProject(node: node, workingDirectory: workingDirectory, mainFile: mainFile)
-        case .bash:
-            return await runBashProject(node: node, workingDirectory: workingDirectory, mainFile: mainFile)
-        default:
-            return "Execution not yet supported for \(node.language.rawValue)\n"
+        case .rust:
+            return await runRustProject(node: node, workingDirectory: workingDirectory, mainFile: mainFile)
+        case .go:
+            return await runGoProject(node: node, workingDirectory: workingDirectory, mainFile: mainFile)
+        case .java, .spring:
+            return await runJavaProject(node: node, workingDirectory: workingDirectory, mainFile: mainFile)
+        case .docker, .kubernetes, .terraform:
+            return "Infrastructure frameworks require manual deployment\n"
         }
     }
     
     private func runPythonProject(node: Node, workingDirectory: URL, mainFile: ProjectFile) async -> String {
         // Use virtual environment if available
-        if let venvPath = node.pythonEnvironmentPath,
-           let venvURL = URL(string: venvPath),
-           FileManager.default.fileExists(atPath: venvURL.appendingPathComponent("bin/python3").path) {
-            let pythonPath = venvURL.appendingPathComponent("bin/python3")
-            return await runCommand("\(pythonPath.path) \(mainFile.path)", workingDirectory: workingDirectory)
-        } else {
-            // Try to use venv in project directory
-            let venvPython = workingDirectory.appendingPathComponent("venv/bin/python3")
-            if FileManager.default.fileExists(atPath: venvPython.path) {
-                return await runCommand("\(venvPython.path) \(mainFile.path)", workingDirectory: workingDirectory)
-            } else {
-                // Use system Python
-                return await runCommand("python3 \(mainFile.path)", workingDirectory: workingDirectory)
+        if let venvPath = node.pythonEnvironmentPath {
+            let venvURL = URL(fileURLWithPath: venvPath)
+            if FileManager.default.fileExists(atPath: venvURL.appendingPathComponent("bin/python3").path) {
+                let pythonPath = venvURL.appendingPathComponent("bin/python3")
+                return await runCommand("\(pythonPath.path) \(mainFile.path)", workingDirectory: workingDirectory)
             }
+        }
+        
+        // Try to use venv in project directory
+        let venvPython = workingDirectory.appendingPathComponent("venv/bin/python3")
+        if FileManager.default.fileExists(atPath: venvPython.path) {
+            return await runCommand("\(venvPython.path) \(mainFile.path)", workingDirectory: workingDirectory)
+        } else {
+            // Use system Python
+            return await runCommand("python3 \(mainFile.path)", workingDirectory: workingDirectory)
         }
     }
     
@@ -317,9 +287,13 @@ struct TerminalView: View {
             // Check if node_modules exists
             let nodeModules = workingDirectory.appendingPathComponent("node_modules")
             if !FileManager.default.fileExists(atPath: nodeModules.path) {
-                appendOutput("Installing dependencies...\n")
+                await MainActor.run {
+                    appendOutput("Installing dependencies...\n")
+                }
                 let installOutput = await runCommand("npm install", workingDirectory: workingDirectory)
-                appendOutput(installOutput)
+                await MainActor.run {
+                    appendOutput(installOutput)
+                }
             }
             // Try npm start first, then node
             let startOutput = await runCommand("npm start", workingDirectory: workingDirectory)
@@ -359,49 +333,85 @@ struct TerminalView: View {
         }
     }
     
-    private func runBashProject(node: Node, workingDirectory: URL, mainFile: ProjectFile) async -> String {
-        // Make executable and run
-        _ = await runCommand("chmod +x \(mainFile.path)", workingDirectory: workingDirectory)
-        return await runCommand("./\(mainFile.path)", workingDirectory: workingDirectory)
+    private func runRustProject(node: Node, workingDirectory: URL, mainFile: ProjectFile) async -> String {
+        // Rust projects use cargo
+        return await runCommand("cargo run", workingDirectory: workingDirectory)
+    }
+    
+    private func runGoProject(node: Node, workingDirectory: URL, mainFile: ProjectFile) async -> String {
+        // Go projects use go run
+        return await runCommand("go run \(mainFile.path)", workingDirectory: workingDirectory)
+    }
+    
+    private func runJavaProject(node: Node, workingDirectory: URL, mainFile: ProjectFile) async -> String {
+        // Java projects use Maven
+        return await runCommand("mvn exec:java", workingDirectory: workingDirectory)
     }
     
     private func runCommand(_ command: String, workingDirectory: URL) async -> String {
+        // Validate working directory exists, create if needed
+        let fileManager = FileManager.default
+        var isDirectory: ObjCBool = false
+        let directoryExists = fileManager.fileExists(atPath: workingDirectory.path, isDirectory: &isDirectory)
+        
+        if !directoryExists || !isDirectory.boolValue {
+            // Try to create the directory
+            do {
+                try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+            } catch {
+                return "Error: Working directory does not exist and could not be created: \(workingDirectory.path)\n\(error.localizedDescription)\n"
+            }
+        }
+        
         return await withCheckedContinuation { continuation in
-            // Run process on background thread to avoid blocking
-            DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
+            // Create and configure process on main thread
+            let process = Process()
+            let outputPipe = Pipe()
+            let errorPipe = Pipe()
+            
+            // Configure process - must be done on main thread
+            // Use async to avoid deadlock if already on main thread
+            if Thread.isMainThread {
                 process.executableURL = URL(fileURLWithPath: "/bin/bash")
                 process.arguments = ["-c", command]
                 process.currentDirectoryURL = workingDirectory
-                
-                let outputPipe = Pipe()
-                let errorPipe = Pipe()
                 process.standardOutput = outputPipe
                 process.standardError = errorPipe
+            } else {
+                DispatchQueue.main.sync {
+                    process.executableURL = URL(fileURLWithPath: "/bin/bash")
+                    process.arguments = ["-c", command]
+                    process.currentDirectoryURL = workingDirectory
+                    process.standardOutput = outputPipe
+                    process.standardError = errorPipe
+                }
+            }
+            
+            // Set up termination handler
+            process.terminationHandler = { process in
+                // Read output after process finishes
+                let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
                 
-                // Set up termination handler
-                process.terminationHandler = { process in
-                    // Read output after process finishes
-                    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                    let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                    
-                    var result = ""
-                    
-                    if let output = String(data: outputData, encoding: .utf8), !output.isEmpty {
-                        result += output
-                    }
-                    
-                    if let error = String(data: errorData, encoding: .utf8), !error.isEmpty {
-                        result += error
-                    }
-                    
-                    if result.isEmpty {
-                        result = process.terminationStatus == 0 ? "" : "Command exited with status \(process.terminationStatus)\n"
-                    }
-                    
-                    continuation.resume(returning: result)
+                var result = ""
+                
+                if let output = String(data: outputData, encoding: .utf8), !output.isEmpty {
+                    result += output
                 }
                 
+                if let error = String(data: errorData, encoding: .utf8), !error.isEmpty {
+                    result += error
+                }
+                
+                if result.isEmpty {
+                    result = process.terminationStatus == 0 ? "" : "Command exited with status \(process.terminationStatus)\n"
+                }
+                
+                continuation.resume(returning: result)
+            }
+            
+            // Run process on background thread to avoid blocking
+            DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     try process.run()
                 } catch {
@@ -411,4 +421,3 @@ struct TerminalView: View {
         }
     }
 }
-

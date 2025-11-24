@@ -5,7 +5,49 @@
 [![macOS](https://img.shields.io/badge/platform-macOS-blue.svg)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-5.9-orange.svg)](https://swift.org/)
 [![SwiftUI](https://img.shields.io/badge/SwiftUI-4.0-blue.svg)](https://developer.apple.com/xcode/swiftui/)
+[![Version](https://img.shields.io/badge/version-0.0.2-blue.svg)](https://github.com/Caraveo/pioneer/releases)
 [![Status](https://img.shields.io/badge/status-PREALPHA-red.svg)](https://github.com/Caraveo/pioneer)
+
+## 🚀 What Pioneer Does
+
+**Pioneer is a revolutionary visual development platform that manages your entire software stack using AI Models and Visual Nodes.**
+
+Pioneer empowers developers to build, manage, and deploy complete software systems—from iOS apps to AWS infrastructure—all through an intuitive visual interface. Whether you're building native applications, frontend interfaces, backend services, databases, or cloud infrastructure, Pioneer provides a unified environment where every component is represented as an interconnected node.
+
+### Key Capabilities:
+
+- **🎯 Framework Management**: Seamlessly manage multiple frameworks and technologies in isolated environments
+  - iOS/macOS apps (Swift, SwiftUI)
+  - Web applications (React, Vue, Angular, Next.js)
+  - Backend services (Node.js, Express, NestJS, Django, Flask, FastAPI)
+  - Native applications (Rust, Go, Java, Spring Boot)
+  - Infrastructure as Code (Docker, Kubernetes, Terraform)
+
+- **🤖 AI-Powered Code Generation**: Leverage advanced AI models to generate production-ready code from natural language prompts
+  - Context-aware code generation
+  - Multi-model support (OpenAI, Anthropic, Google Gemini, Ollama, MistyStudio)
+  - Framework-specific templates and scaffolding
+
+- **📝 Native Code Editor**: Built-in, syntax-highlighted code editor with real-time file management
+  - Multi-file support per node
+  - Language-aware syntax highlighting
+  - Auto-save functionality
+  - File browser and management
+
+- **🔗 Visual Architecture**: Design entire systems as interconnected nodes
+  - Visual representation of system architecture
+  - Node connections represent dependencies and data flow
+  - Drag-and-drop interface for intuitive design
+
+- **⚡ Isolated Environments**: Each node runs in its own isolated environment
+  - Python virtual environments
+  - Node.js version management (Volta)
+  - No conflicts between projects
+
+- **💾 Project Management**: Save and load complete projects as `.code` archives
+  - Preserves all code, node data, and canvas state
+  - Portable project files
+  - Version control ready
 
 > ⚠️ **PREALPHA WARNING**: Pioneer is currently in **PREALPHA** stage and is **NOT ready for production use**. This software requires extensive setup and configuration. Many features are experimental, incomplete, or may not work as expected. Use at your own risk.
 

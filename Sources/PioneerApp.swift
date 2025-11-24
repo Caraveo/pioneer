@@ -6,6 +6,8 @@ struct PioneerApp: App {
     @StateObject private var projectManager = ProjectManager()
     @AppStorage("appearance") private var appearance: AppearanceMode = .system
     @State private var showAISettings = false
+    @State private var showFrameworkSettings = false
+    @State private var showProjectSettings = false
     
     init() {
         // Activate app immediately when launched (especially from terminal)
@@ -22,6 +24,12 @@ struct PioneerApp: App {
                 .preferredColorScheme(appearance.colorScheme)
                 .sheet(isPresented: $showAISettings) {
                     AISettingsView(aiService: projectManager.aiService)
+                }
+                .sheet(isPresented: $showFrameworkSettings) {
+                    FrameworkSettingsView()
+                }
+                .sheet(isPresented: $showProjectSettings) {
+                    ProjectSettingsView()
                 }
                 .background(WindowAccessor())
                 .onAppear {
@@ -67,11 +75,13 @@ struct PioneerApp: App {
                 
                 if projectManager.currentProjectPath != nil {
                     Button("Save Project") {
-                        if let url = projectManager.currentProjectPath {
-                            do {
-                                try projectManager.saveProject(to: url)
-                            } catch {
-                                print("Failed to save: \(error)")
+                        Task { @MainActor in
+                            if let url = projectManager.currentProjectPath {
+                                do {
+                                    try await projectManager.saveProject(to: url)
+                                } catch {
+                                    print("Failed to save: \(error)")
+                                }
                             }
                         }
                     }
@@ -108,6 +118,16 @@ struct PioneerApp: App {
                     showAISettings = true
                 }
                 .keyboardShortcut(",", modifiers: [.command, .shift])
+                
+                Button("Framework Settings...") {
+                    showFrameworkSettings = true
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                
+                Button("Project Settings...") {
+                    showProjectSettings = true
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
             }
         }
     }

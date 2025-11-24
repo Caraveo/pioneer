@@ -289,7 +289,7 @@ class LLMService {
         if configuration.includeNodeConnections && !context.connectedNodes.isEmpty {
             prompt += "Connected Nodes:\n"
             for node in context.connectedNodes {
-                prompt += "- \(node.name) (\(node.type.rawValue)): \(node.language.rawValue)\n"
+                prompt += "- \(node.name) (\(node.type.rawValue)): \(node.framework.rawValue)\n"
                 if !node.code.isEmpty {
                     prompt += "  Code preview: \(node.code.prefix(100))...\n"
                 }
@@ -300,7 +300,7 @@ class LLMService {
         prompt += "Current Node:\n"
         prompt += "- Name: \(context.currentNode.name)\n"
         prompt += "- Type: \(context.currentNode.type.rawValue)\n"
-        prompt += "- Language: \(context.currentNode.language.rawValue)\n"
+        prompt += "- Framework: \(context.currentNode.framework.rawValue)\n"
         
         if !context.currentNode.code.isEmpty {
             prompt += "- Existing code: \(context.currentNode.code.prefix(200))...\n"

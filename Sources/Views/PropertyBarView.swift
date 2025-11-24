@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PropertyBarView: View {
     @EnvironmentObject var projectManager: ProjectManager
+    @StateObject private var frameworkManager = FrameworkManager()
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -57,21 +58,21 @@ struct PropertyBarView: View {
                         
                         Divider()
                         
-                        // Language
-                        PropertySection(title: "Language") {
-                            Picker("Language", selection: Binding(
-                                get: { projectManager.nodes[nodeIndex].language },
-                                set: { newLanguage in
-                                    projectManager.nodes[nodeIndex].language = newLanguage
+                        // Framework
+                        PropertySection(title: "Framework") {
+                            Picker("Framework", selection: Binding(
+                                get: { projectManager.nodes[nodeIndex].framework },
+                                set: { newFramework in
+                                    projectManager.nodes[nodeIndex].framework = newFramework
                                     projectManager.updateNode(projectManager.nodes[nodeIndex])
                                 }
                             )) {
-                                ForEach(CodeLanguage.allCases, id: \.self) { language in
+                                ForEach(frameworkManager.availableFrameworks, id: \.self) { framework in
                                     HStack {
-                                        Image(systemName: language.icon)
-                                        Text(language.rawValue)
+                                        Image(systemName: framework.icon)
+                                        Text(framework.rawValue)
                                     }
-                                    .tag(language)
+                                    .tag(framework)
                                 }
                             }
                             .pickerStyle(.menu)
@@ -143,8 +144,8 @@ struct PropertyBarView: View {
                             }
                         }
                         
-                        // Python Requirements (if Python node)
-                        if selectedNode.language == .python {
+                        // Python Requirements (if Python framework)
+                        if [.django, .flask, .fastapi, .purepy].contains(selectedNode.framework) {
                             Divider()
                             
                             PropertySection(title: "Python Requirements") {

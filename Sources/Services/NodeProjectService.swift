@@ -2,43 +2,45 @@ import Foundation
 import AppKit
 
 class NodeProjectService {
-    private let projectsBasePath: URL
+    private let projectSettings = ProjectSettings.shared
     
     init() {
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        let pioneerDir = homeDir.appendingPathComponent(".pioneer")
-        let projectsPath = pioneerDir.appendingPathComponent("Projects")
-        
-        // Create projects directory if it doesn't exist
-        try? FileManager.default.createDirectory(at: projectsPath, withIntermediateDirectories: true)
-        
-        self.projectsBasePath = projectsPath
+        // Ensure base directory exists
+        let basePath = projectSettings.projectsBasePath
+        try? FileManager.default.createDirectory(at: URL(fileURLWithPath: basePath), withIntermediateDirectories: true)
     }
     
     /// Get the project directory path for a node
-    func getProjectPath(for node: Node) -> URL {
-        return projectsBasePath.appendingPathComponent(node.id.uuidString)
+    func getProjectPath(for node: Node, projectName: String? = nil) -> URL {
+        // Use project name from ProjectManager if available, otherwise use "Untitled Project"
+        let projectName = projectName ?? "Untitled Project"
+        return projectSettings.getProjectPath(projectName: projectName, nodeId: node.id)
     }
     
     /// Create project structure for a node
-    func createProjectStructure(for node: Node) async throws {
-        let projectPath = getProjectPath(for: node)
+    func createProjectStructure(for node: Node, projectName: String? = nil) async throws {
+        let projectPath = getProjectPath(for: node, projectName: projectName)
         
         // Create project directory
         try FileManager.default.createDirectory(at: projectPath, withIntermediateDirectories: true)
         
-        // Create language-specific project structure
-        switch node.language {
-        case .python:
+        // Create framework-specific project structure
+        switch node.framework {
+        case .django, .flask, .fastapi, .purepy:
             try await createPythonProjectStructure(node: node, projectPath: projectPath)
-        case .swift:
+        case .swift, .swiftui:
             try await createSwiftProjectStructure(node: node, projectPath: projectPath)
-        case .typescript, .javascript:
+        case .nodejs, .express, .nestjs:
             try await createJavaScriptProjectStructure(node: node, projectPath: projectPath)
-        case .html, .css:
-            try await createWebProjectStructure(node: node, projectPath: projectPath)
-        default:
-            // Create basic structure for other languages
+        case .angular, .react, .vue, .nextjs:
+            try await createFrontendProjectStructure(node: node, projectPath: projectPath)
+        case .rust:
+            try await createRustProjectStructure(node: node, projectPath: projectPath)
+        case .go:
+            try await createGoProjectStructure(node: node, projectPath: projectPath)
+        case .java, .spring:
+            try await createJavaProjectStructure(node: node, projectPath: projectPath)
+        case .docker, .kubernetes, .terraform:
             try await createBasicProjectStructure(node: node, projectPath: projectPath)
         }
         
@@ -187,14 +189,15 @@ class NodeProjectService {
         let nodeVersion = await getNodeVersion()
         
         // Create package.json with Volta configuration
+        let isTypeScript = [.angular, .nestjs, .nextjs].contains(node.framework) || node.framework.primaryLanguage == .typescript
         var packageJson: [String: Any] = [
             "name": node.projectDirectoryName.lowercased(),
             "version": "1.0.0",
             "description": node.name,
-            "main": "src/index.\(node.language == .typescript ? "ts" : "js")",
+            "main": "src/index.\(isTypeScript ? "ts" : "js")",
             "scripts": [
-                "start": node.language == .typescript ? "ts-node src/index.ts" : "node src/index.js",
-                "build": node.language == .typescript ? "tsc" : "echo 'No build step needed'"
+                "start": isTypeScript ? "ts-node src/index.ts" : "node src/index.js",
+                "build": isTypeScript ? "tsc" : "echo 'No build step needed'"
             ],
             "keywords": [],
             "author": "",
@@ -386,15 +389,202 @@ class NodeProjectService {
         
         \(node.type.rawValue) project
         
-        Language: \(node.language.rawValue)
+        Framework: \(node.framework.rawValue)
         """
         try readme.write(to: projectPath.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
     }
     
+    private func createRustProjectStructure(node: Node, projectPath: URL) async throws {
+        // Create Cargo.toml
+        let cargoToml = """
+        [package]
+        name = "\(node.projectDirectoryName.lowercased())"
+        version = "1.0.0"
+        edition = "2021"
+        
+        [dependencies]
+        """
+        try cargoToml.write(to: projectPath.appendingPathComponent("Cargo.toml"), atomically: true, encoding: .utf8)
+        
+        // Create src directory
+        let srcDir = projectPath.appendingPathComponent("src")
+        try FileManager.default.createDirectory(at: srcDir, withIntermediateDirectories: true)
+        
+        // Create README.md
+        let readme = """
+        # \(node.name)
+        
+        Rust project
+        
+        ## Build
+        ```bash
+        cargo build
+        ```
+        
+        ## Run
+        ```bash
+        cargo run
+        ```
+        """
+        try readme.write(to: projectPath.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+    }
+    
+    private func createGoProjectStructure(node: Node, projectPath: URL) async throws {
+        // Create go.mod
+        let goMod = """
+        module \(node.projectDirectoryName.lowercased())
+        
+        go 1.21
+        """
+        try goMod.write(to: projectPath.appendingPathComponent("go.mod"), atomically: true, encoding: .utf8)
+        
+        // Create README.md
+        let readme = """
+        # \(node.name)
+        
+        Go project
+        
+        ## Build
+        ```bash
+        go build
+        ```
+        
+        ## Run
+        ```bash
+        go run main.go
+        ```
+        """
+        try readme.write(to: projectPath.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+    }
+    
+    private func createJavaProjectStructure(node: Node, projectPath: URL) async throws {
+        // Create Maven structure
+        let srcMainJava = projectPath.appendingPathComponent("src/main/java")
+        let srcTestJava = projectPath.appendingPathComponent("src/test/java")
+        
+        try FileManager.default.createDirectory(at: srcMainJava, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: srcTestJava, withIntermediateDirectories: true)
+        
+        // Create pom.xml for Maven
+        let pomXml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <project xmlns="http://maven.apache.org/POM/4.0.0"
+                 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+            <modelVersion>4.0.0</modelVersion>
+            
+            <groupId>com.example</groupId>
+            <artifactId>\(node.projectDirectoryName.lowercased())</artifactId>
+            <version>1.0.0</version>
+            
+            <properties>
+                <maven.compiler.source>17</maven.compiler.source>
+                <maven.compiler.target>17</maven.compiler.target>
+            </properties>
+        </project>
+        """
+        try pomXml.write(to: projectPath.appendingPathComponent("pom.xml"), atomically: true, encoding: .utf8)
+        
+        // Create README.md
+        let readme = """
+        # \(node.name)
+        
+        Java project
+        
+        ## Build
+        ```bash
+        mvn compile
+        ```
+        
+        ## Run
+        ```bash
+        mvn exec:java
+        ```
+        """
+        try readme.write(to: projectPath.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+    }
+    
+    private func createFrontendProjectStructure(node: Node, projectPath: URL) async throws {
+        // Create frontend project structure (React, Vue, Angular, Next.js)
+        let srcDir = projectPath.appendingPathComponent("src")
+        let publicDir = projectPath.appendingPathComponent("public")
+        
+        try FileManager.default.createDirectory(at: srcDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: publicDir, withIntermediateDirectories: true)
+        
+        // Get current Node.js version using Volta
+        let nodeVersion = await getNodeVersion()
+        
+        // Create package.json
+        var packageJson: [String: Any] = [
+            "name": node.projectDirectoryName.lowercased(),
+            "version": "1.0.0",
+            "description": node.name,
+            "scripts": [
+                "dev": "next dev",
+                "build": "next build",
+                "start": "next start"
+            ],
+            "keywords": [],
+            "author": "",
+            "license": "ISC"
+        ]
+        
+        // Add framework-specific dependencies
+        switch node.framework {
+        case .react:
+            packageJson["dependencies"] = [
+                "react": "^18.2.0",
+                "react-dom": "^18.2.0"
+            ]
+        case .vue:
+            packageJson["dependencies"] = [
+                "vue": "^3.3.0"
+            ]
+        case .angular:
+            // Angular uses angular.json, handled separately
+            break
+        case .nextjs:
+            packageJson["dependencies"] = [
+                "next": "^14.0.0",
+                "react": "^18.2.0",
+                "react-dom": "^18.2.0"
+            ]
+        default:
+            break
+        }
+        
+        // Add Volta configuration
+        if !nodeVersion.isEmpty {
+            packageJson["volta"] = [
+                "node": nodeVersion
+            ] as [String: Any]
+        }
+        
+        let jsonData = try JSONSerialization.data(withJSONObject: packageJson, options: .prettyPrinted)
+        try jsonData.write(to: projectPath.appendingPathComponent("package.json"))
+        
+        // Pin Node.js version using Volta if available
+        if await isVoltaInstalled() {
+            await pinNodeVersion(projectPath: projectPath, version: nodeVersion)
+        }
+        
+        // Create .gitignore
+        let gitignore = """
+        node_modules/
+        .next/
+        dist/
+        build/
+        .env
+        *.log
+        """
+        try gitignore.write(to: projectPath.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+    }
+    
     func saveMainCodeFile(node: Node, projectPath: URL) async throws {
         // Use the node's main file path
-        let mainPath = node.getMainFilePath(for: node.language)
-        let mainFileName = node.getMainFileName(for: node.language)
+        let mainPath = node.getMainFilePath(for: node.framework)
         
         // Find the main file in the node's files
         guard let mainFile = node.files.first(where: { $0.path == mainPath }) else {
@@ -417,10 +607,10 @@ class NodeProjectService {
     
     /// Get project files for a node
     func getProjectFiles(for node: Node) -> [URL] {
-        guard let projectPath = node.projectPath,
-              let url = URL(string: projectPath) else {
+        guard let projectPath = node.projectPath else {
             return []
         }
+        let url = URL(fileURLWithPath: projectPath)
         
         guard FileManager.default.fileExists(atPath: url.path) else {
             return []
@@ -440,10 +630,10 @@ class NodeProjectService {
     
     /// Delete a file from the project directory
     func deleteFile(node: Node, file: ProjectFile) async throws {
-        guard let projectPath = node.projectPath,
-              let url = URL(string: projectPath) else {
+        guard let projectPath = node.projectPath else {
             return
         }
+        let url = URL(fileURLWithPath: projectPath)
         
         let fileURL = url.appendingPathComponent(file.path)
         
@@ -454,8 +644,8 @@ class NodeProjectService {
     }
     
     /// Open project in Finder
-    func openProjectInFinder(for node: Node) {
-        let projectPath = getProjectPath(for: node)
+    func openProjectInFinder(for node: Node, projectName: String? = nil) {
+        let projectPath = getProjectPath(for: node, projectName: projectName)
         NSWorkspace.shared.open(projectPath)
     }
 }

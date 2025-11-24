@@ -23,7 +23,7 @@ class AIService: ObservableObject {
     
     func generateCode(
         prompt: String,
-        language: CodeLanguage,
+        framework: Framework,
         nodeContext: Node?,
         connectedNodes: [Node],
         allNodes: [Node]
@@ -37,7 +37,7 @@ class AIService: ObservableObject {
             let systemPrompt = buildNodeSpecificSystemPrompt(node: nodeContext, template: selectedTemplate)
             
             // Build user prompt with node-specific context
-            var userPrompt = buildNodeSpecificUserPrompt(prompt: prompt, node: nodeContext, template: selectedTemplate)
+            let userPrompt = buildNodeSpecificUserPrompt(prompt: prompt, node: nodeContext, template: selectedTemplate)
             
             // Build context
             let context: LLMService.NodeContext? = {
@@ -53,7 +53,7 @@ class AIService: ObservableObject {
             let generatedCode = try await llmService.generateCode(
                 prompt: userPrompt,
                 systemPrompt: systemPrompt,
-                language: language,
+                language: framework.primaryLanguage,
                 context: context
             )
             
@@ -66,7 +66,7 @@ class AIService: ObservableObject {
         } catch {
             // Fallback to stub code if LLM fails
             print("LLM generation failed: \(error), using fallback")
-            let generatedCode = generateStubCode(prompt: prompt, language: language, nodeContext: nodeContext)
+            let generatedCode = generateStubCode(prompt: prompt, framework: framework, nodeContext: nodeContext)
             
             await MainActor.run {
                 isProcessing = false
@@ -83,7 +83,7 @@ class AIService: ObservableObject {
     }
     
     private func buildNodeSpecificSystemPrompt(node: Node?, template: PromptTemplate) -> String {
-        var basePrompt = template.systemPrompt
+        let basePrompt = template.systemPrompt
         
         guard let node = node else {
             return basePrompt
@@ -93,7 +93,7 @@ class AIService: ObservableObject {
         var nodeContext = "\n\nNode Context:\n"
         nodeContext += "- Node Type: \(node.type.rawValue)\n"
         nodeContext += "- Node Name: \(node.name)\n"
-        nodeContext += "- Language: \(node.language.rawValue)\n"
+        nodeContext += "- Framework: \(node.framework.rawValue)\n"
         
         if let projectPath = node.projectPath {
             nodeContext += "- Project Path: \(projectPath)\n"
@@ -126,24 +126,79 @@ class AIService: ObservableObject {
             nodeContext += "- This is a custom project. Generate code appropriate for the selected language.\n"
         }
         
-        // Add language-specific instructions
-        switch node.language {
-        case .python:
+        // Add framework-specific instructions
+        switch node.framework {
+        case .django:
+            nodeContext += "- Use Django best practices and conventions.\n"
+            nodeContext += "- Follow Django project structure (apps, models, views, urls).\n"
+            nodeContext += "- Use Django ORM for database operations.\n"
+            
+        case .flask:
+            nodeContext += "- Use Flask best practices and blueprints.\n"
+            nodeContext += "- Follow Flask project structure.\n"
+            nodeContext += "- Use Flask-SQLAlchemy for database operations.\n"
+            
+        case .fastapi:
+            nodeContext += "- Use FastAPI best practices with Pydantic models.\n"
+            nodeContext += "- Include proper type hints and async/await patterns.\n"
+            nodeContext += "- Use dependency injection for routes.\n"
+            
+        case .purepy:
             nodeContext += "- Use Python best practices (PEP 8 style guide).\n"
-            nodeContext += "- Include proper docstrings and type hints where appropriate.\n"
+            nodeContext += "- Include proper docstrings and type hints.\n"
             nodeContext += "- Handle errors with try/except blocks.\n"
             
-        case .swift:
+        case .nodejs, .express:
+            nodeContext += "- Use Node.js best practices and async/await.\n"
+            nodeContext += "- Follow Express.js conventions.\n"
+            nodeContext += "- Include proper error handling middleware.\n"
+            
+        case .nestjs:
+            nodeContext += "- Use NestJS best practices with decorators.\n"
+            nodeContext += "- Follow NestJS module structure.\n"
+            nodeContext += "- Use dependency injection and providers.\n"
+            
+        case .angular:
+            nodeContext += "- Use Angular best practices with TypeScript.\n"
+            nodeContext += "- Follow Angular component and service patterns.\n"
+            nodeContext += "- Use RxJS for reactive programming.\n"
+            
+        case .react:
+            nodeContext += "- Use React best practices with hooks.\n"
+            nodeContext += "- Follow React component patterns.\n"
+            nodeContext += "- Use functional components and hooks.\n"
+            
+        case .vue:
+            nodeContext += "- Use Vue.js best practices with Composition API.\n"
+            nodeContext += "- Follow Vue component patterns.\n"
+            nodeContext += "- Use Vuex or Pinia for state management.\n"
+            
+        case .nextjs:
+            nodeContext += "- Use Next.js best practices with App Router.\n"
+            nodeContext += "- Follow Next.js file-based routing.\n"
+            nodeContext += "- Use Server Components and Client Components appropriately.\n"
+            
+        case .swift, .swiftui:
             nodeContext += "- Use Swift best practices and SwiftUI patterns.\n"
             nodeContext += "- Follow Swift API Design Guidelines.\n"
             nodeContext += "- Use proper error handling with Result types or throws.\n"
             
-        case .typescript, .javascript:
-            nodeContext += "- Use modern ES6+ JavaScript/TypeScript features.\n"
-            nodeContext += "- Follow TypeScript best practices if applicable.\n"
-            nodeContext += "- Include proper error handling.\n"
+        case .rust:
+            nodeContext += "- Use Rust best practices and ownership patterns.\n"
+            nodeContext += "- Follow Rust naming conventions.\n"
+            nodeContext += "- Use Result types for error handling.\n"
             
-        case .dockerfile:
+        case .go:
+            nodeContext += "- Use Go best practices and conventions.\n"
+            nodeContext += "- Follow Go naming conventions.\n"
+            nodeContext += "- Use proper error handling with error returns.\n"
+            
+        case .java, .spring:
+            nodeContext += "- Use Java best practices and Spring patterns.\n"
+            nodeContext += "- Follow Spring Boot conventions.\n"
+            nodeContext += "- Use dependency injection and annotations.\n"
+            
+        case .docker:
             nodeContext += "- Generate optimized, production-ready Dockerfiles.\n"
             nodeContext += "- Use multi-stage builds when appropriate.\n"
             nodeContext += "- Follow Docker best practices.\n"
@@ -157,9 +212,6 @@ class AIService: ObservableObject {
             nodeContext += "- Generate Terraform configurations following best practices.\n"
             nodeContext += "- Use variables and outputs appropriately.\n"
             nodeContext += "- Include proper state management considerations.\n"
-            
-        default:
-            break
         }
         
         return basePrompt + nodeContext
@@ -195,12 +247,12 @@ class AIService: ObservableObject {
         return userPrompt + projectContext
     }
     
-    private func generateStubCode(prompt: String, language: CodeLanguage, nodeContext: Node?) -> String {
+    private func generateStubCode(prompt: String, framework: Framework, nodeContext: Node?) -> String {
         // This is a placeholder - replace with actual AI API integration
-        // For now, return formatted code based on language
+        // For now, return formatted code based on framework
         
-        switch language {
-        case .swift:
+        switch framework {
+        case .swift, .swiftui:
             return """
             // Generated code for: \(prompt)
             import SwiftUI
@@ -215,7 +267,7 @@ class AIService: ObservableObject {
             }
             """
             
-        case .python:
+        case .django, .flask, .fastapi, .purepy:
             return """
             # Generated code for: \(prompt)
             def main():
@@ -225,6 +277,87 @@ class AIService: ObservableObject {
                 main()
             """
             
+        case .nodejs, .express, .nestjs, .angular, .react, .vue, .nextjs:
+            return """
+            // Generated code for: \(prompt)
+            console.log('Generated from: \(prompt)');
+            """
+            
+        case .rust:
+            return """
+            // Generated code for: \(prompt)
+            fn main() {
+                println!("Generated from: \(prompt)");
+            }
+            """
+            
+        case .go:
+            return """
+            // Generated code for: \(prompt)
+            package main
+            
+            import "fmt"
+            
+            func main() {
+                fmt.Println("Generated from: \(prompt)")
+            }
+            """
+            
+        case .java, .spring:
+            return """
+            // Generated code for: \(prompt)
+            public class Main {
+                public static void main(String[] args) {
+                    System.out.println("Generated from: \(prompt)");
+                }
+            }
+            """
+            
+        case .docker:
+            return """
+            # Generated code for: \(prompt)
+            FROM node:20-alpine
+            WORKDIR /app
+            COPY . .
+            CMD ["node", "index.js"]
+            """
+            
+        case .kubernetes:
+            return """
+            # Generated code for: \(prompt)
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: app
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
+                  app: app
+              template:
+                metadata:
+                  labels:
+                    app: app
+                spec:
+                  containers:
+                  - name: app
+                    image: app:latest
+            """
+            
+        case .terraform:
+            return """
+            # Generated code for: \(prompt)
+            resource "aws_instance" "example" {
+              ami           = "ami-0c55b159cbfafe1f0"
+              instance_type = "t2.micro"
+            }
+            """
+        }
+    }
+    
+    // Legacy stub code generation for file-level languages (deprecated)
+    private func generateStubCodeForLanguage(prompt: String, language: CodeLanguage) -> String {
+        switch language {
         case .yaml:
             return """
             # Generated YAML for: \(prompt)
@@ -407,6 +540,11 @@ class AIService: ObservableObject {
             ## Features
             - Generated automatically
             - Based on: \(prompt)
+            """
+        default:
+            return """
+            // Generated code for: \(prompt)
+            // Language: \(language.rawValue)
             """
         }
     }
