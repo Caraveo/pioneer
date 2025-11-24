@@ -38,10 +38,10 @@ struct MonacoEditorView: NSViewRepresentable {
     }
     
     func updateNSView(_ nsView: NSView, context: Context) {
-        guard let containerView = nsView as? FocusableWebViewContainer,
-              let webView = containerView.webView else {
+        guard let containerView = nsView as? FocusableWebViewContainer else {
             return
         }
+        let webView = containerView.webView
         // Update theme if changed
         let currentTheme = context.coordinator.currentTheme
         let newTheme = colorScheme == .dark ? "vs-dark" : "vs"
