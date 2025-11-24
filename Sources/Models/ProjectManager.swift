@@ -3,6 +3,20 @@ import SwiftUI
 import Combine
 import AppKit
 
+enum ViewMode: String, CaseIterable {
+    case ai = "AI"
+    case nodeCanvas = "NODE CANVAS"
+    case editor = "EDITOR MODE"
+    
+    var icon: String {
+        switch self {
+        case .ai: return "sparkles"
+        case .nodeCanvas: return "square.grid.2x2"
+        case .editor: return "doc.text"
+        }
+    }
+}
+
 @MainActor
 class ProjectManager: ObservableObject {
     @Published var nodes: [Node] = []
@@ -11,6 +25,7 @@ class ProjectManager: ObservableObject {
     @Published var canvasScale: CGFloat = 1.0
     @Published var connectingFromNodeId: UUID?
     @Published var hoveredConnectionPoint: (nodeId: UUID, isOutput: Bool)?
+    @Published var viewMode: ViewMode = .nodeCanvas
     
     private let pythonBridge = PythonBridge()
     let nodeProjectService = NodeProjectService()

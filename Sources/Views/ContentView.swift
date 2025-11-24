@@ -19,15 +19,31 @@ struct ContentView: View {
                 
                 Divider()
                 
-                // Node editor and code editor
-                HSplitView {
-                    // Node canvas
-                    NodeCanvasView()
-                        .frame(minWidth: 400)
+                // Content based on view mode
+                Group {
+                    switch projectManager.viewMode {
+                    case .ai:
+                        // AI Mode - Show AI interface
+                        AIModeView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     
-                    // Code editor
-                    CodeEditorView()
-                        .frame(minWidth: 300, idealWidth: 400, maxWidth: 600)
+                    case .nodeCanvas:
+                        // Node Canvas Mode - Show node canvas and editor
+                        HSplitView {
+                            // Node canvas
+                            NodeCanvasView()
+                                .frame(minWidth: 400)
+                            
+                            // Code editor
+                            CodeEditorView()
+                                .frame(minWidth: 300, idealWidth: 400, maxWidth: 600)
+                        }
+                    
+                    case .editor:
+                        // Editor Mode - Show only code editor
+                        CodeEditorView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
             }
         }
