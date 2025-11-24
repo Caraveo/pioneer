@@ -11,7 +11,6 @@ struct NodeCanvasView: View {
     @State private var connectingToPoint: CGPoint?
     @State private var hoveredNodeId: UUID?
     @State private var mouseLocation: CGPoint = .zero
-    @StateObject private var aiService = AIService()
     @State private var aiPrompt: String = ""
     @State private var showAIResponse: Bool = false
     @State private var aiResponseMessage: String = ""
@@ -171,7 +170,8 @@ struct NodeCanvasView: View {
                 // AI Prompt Input
                 AIPromptInput(
                     prompt: $aiPrompt,
-                    isProcessing: aiService.isProcessing,
+                    aiService: projectManager.aiService,
+                    isProcessing: projectManager.aiService.isProcessing,
                     onSubmit: {
                         handleAIPrompt()
                     }
@@ -193,10 +193,16 @@ struct NodeCanvasView: View {
         }
         
         Task {
-            if let generatedCode = await aiService.generateCode(
+            // Get connected nodes
+            let connectedNodeIds = selectedNode.connections
+            let connectedNodes = projectManager.nodes.filter { connectedNodeIds.contains($0.id) }
+            
+            if let generatedCode = await projectManager.aiService.generateCode(
                 prompt: aiPrompt,
                 language: selectedNode.language,
-                nodeContext: selectedNode
+                nodeContext: selectedNode,
+                connectedNodes: connectedNodes,
+                allNodes: projectManager.nodes
             ) {
                 // Extract only the code (remove markdown if present)
                 let codeOnly = extractCodeFromResponse(generatedCode)

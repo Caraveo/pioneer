@@ -4,27 +4,85 @@ import AppKit
 class AIService: ObservableObject {
     @Published var isProcessing: Bool = false
     @Published var lastResponse: String = ""
+    @Published var configuration: AIConfiguration = .default {
+        didSet {
+            AIConfigurationManager().saveConfiguration(configuration)
+        }
+    }
+    @Published var selectedTemplate: PromptTemplate = .custom
     
-    private let systemPrompt = "RETURN MARKUP CODE"
+    private let configManager = AIConfigurationManager()
     
-    func generateCode(prompt: String, language: CodeLanguage, nodeContext: Node?) async -> String? {
+    init() {
+        self.configuration = configManager.loadConfiguration()
+    }
+    
+    private var llmService: LLMService {
+        LLMService(configuration: configuration)
+    }
+    
+    func generateCode(
+        prompt: String,
+        language: CodeLanguage,
+        nodeContext: Node?,
+        connectedNodes: [Node],
+        allNodes: [Node]
+    ) async -> String? {
         await MainActor.run {
             isProcessing = true
         }
         
-        // Simulate AI processing (replace with actual AI API call)
-        // For now, this is a stub that will be replaced with actual LLM integration
-        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
-        
-        // Generate example code based on prompt and language
-        let generatedCode = generateStubCode(prompt: prompt, language: language, nodeContext: nodeContext)
-        
-        await MainActor.run {
-            isProcessing = false
-            lastResponse = generatedCode
+        do {
+            // Build system prompt from template
+            let systemPrompt = selectedTemplate.systemPrompt
+            
+            // Build user prompt with template prefix if applicable
+            var userPrompt = prompt
+            if selectedTemplate != .custom, !selectedTemplate.userPromptPrefix.isEmpty {
+                userPrompt = selectedTemplate.userPromptPrefix + prompt
+            }
+            
+            // Build context
+            let context: LLMService.NodeContext? = {
+                guard let nodeContext = nodeContext else { return nil }
+                return LLMService.NodeContext(
+                    currentNode: nodeContext,
+                    connectedNodes: connectedNodes,
+                    projectNodes: allNodes
+                )
+            }()
+            
+            // Generate code using LLM service
+            let generatedCode = try await llmService.generateCode(
+                prompt: userPrompt,
+                systemPrompt: systemPrompt,
+                language: language,
+                context: context
+            )
+            
+            await MainActor.run {
+                isProcessing = false
+                lastResponse = generatedCode
+            }
+            
+            return generatedCode
+        } catch {
+            // Fallback to stub code if LLM fails
+            print("LLM generation failed: \(error), using fallback")
+            let generatedCode = generateStubCode(prompt: prompt, language: language, nodeContext: nodeContext)
+            
+            await MainActor.run {
+                isProcessing = false
+                lastResponse = generatedCode
+            }
+            
+            return generatedCode
         }
-        
-        return generatedCode
+    }
+    
+    func listAvailableModels(for provider: LLMProvider) async -> [AIModel] {
+        let service = LLMService(configuration: configuration)
+        return await service.listAvailableModels(for: provider)
     }
     
     private func generateStubCode(prompt: String, language: CodeLanguage, nodeContext: Node?) -> String {
@@ -243,4 +301,5 @@ class AIService: ObservableObject {
         }
     }
 }
+
 

@@ -11,7 +11,7 @@ class ProjectManager: ObservableObject {
     @Published var hoveredConnectionPoint: (nodeId: UUID, isOutput: Bool)?
     
     private let pythonBridge = PythonBridge()
-    let aiService = AIService()
+    @Published var aiService = AIService()
     
     init() {
         // Create a default node for demonstration
