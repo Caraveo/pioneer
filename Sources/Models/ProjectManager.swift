@@ -197,12 +197,12 @@ class ProjectManager: ObservableObject {
                     await initializeNodeProject(node: node)
                 }
             } else {
-                // Save code to project file
+                // Save all files to project
                 Task {
                     do {
-                        try await nodeProjectService.saveMainCodeFile(node: node, projectPath: nodeProjectService.getProjectPath(for: node))
+                        try await nodeProjectService.saveAllFiles(node: node, projectPath: nodeProjectService.getProjectPath(for: node))
                     } catch {
-                        print("Failed to save code file: \(error)")
+                        print("Failed to save files: \(error)")
                     }
                 }
             }
