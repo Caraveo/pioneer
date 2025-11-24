@@ -7,6 +7,18 @@ struct MonacoEditorView: NSViewRepresentable {
     let language: CodeLanguage
     var onWebViewReady: ((WKWebView) -> Void)?
     @Environment(\.colorScheme) var colorScheme
+    @AppStorage("appearance") private var appearance: AppearanceMode = .system
+    
+    /// Get the effective color scheme (system-aware)
+    private var effectiveColorScheme: ColorScheme {
+        if appearance == .system {
+            // Detect actual system appearance
+            let isDark = NSApp.effectiveAppearance.name == .darkAqua || NSApp.effectiveAppearance.name == .vibrantDark
+            return isDark ? .dark : .light
+        } else {
+            return appearance == .dark ? .dark : .light
+        }
+    }
     
     func makeNSView(context: Context) -> NSView {
         let configuration = WKWebViewConfiguration()
@@ -39,12 +51,19 @@ struct MonacoEditorView: NSViewRepresentable {
         // Create a container view that can become first responder
         let containerView = FocusableWebViewContainer(webView: webView)
         
+        // Determine initial theme based on effective appearance
+        let initialTheme = effectiveColorScheme == .dark ? "vs-dark" : "vs"
+        context.coordinator.currentTheme = initialTheme
+        
         // Load Monaco Editor
-        let html = generateMonacoHTML(language: language, initialText: text, theme: colorScheme == .dark ? "vs-dark" : "vs")
+        let html = generateMonacoHTML(language: language, initialText: text, theme: initialTheme)
         webView.loadHTMLString(html, baseURL: nil)
         
         context.coordinator.webView = webView
         context.coordinator.onWebViewReady = onWebViewReady
+        
+        // Observe system appearance changes
+        context.coordinator.observeAppearanceChanges()
         
         // Notify when webView is ready
         DispatchQueue.main.async {
@@ -59,9 +78,11 @@ struct MonacoEditorView: NSViewRepresentable {
             return
         }
         let webView = containerView.webView
-        // Update theme if changed
+        
+        // Update theme if changed - use effective color scheme
+        // This ensures theme updates when appearance setting changes
         let currentTheme = context.coordinator.currentTheme
-        let newTheme = colorScheme == .dark ? "vs-dark" : "vs"
+        let newTheme = effectiveColorScheme == .dark ? "vs-dark" : "vs"
         if currentTheme != newTheme {
             context.coordinator.currentTheme = newTheme
             updateTheme(webView: webView, theme: newTheme)
@@ -284,11 +305,56 @@ struct MonacoEditorView: NSViewRepresentable {
         var isUpdatingFromJS: Bool = false
         var onWebViewReady: ((WKWebView) -> Void)?
         var lastKnownContent: String = ""
+        private var appearanceObserver: NSObjectProtocol?
         
         init(_ parent: MonacoEditorView) {
             self.parent = parent
             self.currentLanguage = parent.language
-            self.currentTheme = parent.colorScheme == .dark ? "vs-dark" : "vs"
+            // Determine theme based on effective appearance
+            let isDark = NSApp.effectiveAppearance.name == .darkAqua || NSApp.effectiveAppearance.name == .vibrantDark
+            self.currentTheme = isDark ? "vs-dark" : "vs"
+        }
+        
+        deinit {
+            if let observer = appearanceObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+        
+        /// Observe system appearance changes
+        func observeAppearanceChanges() {
+            // Observe system appearance changes via DistributedNotificationCenter
+            appearanceObserver = DistributedNotificationCenter.default.addObserver(
+                forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self?.updateThemeForSystemAppearance()
+                }
+            }
+        }
+        
+        private func updateThemeForSystemAppearance() {
+            guard let webView = webView else { return }
+            
+            // Get effective appearance
+            let isDark = NSApp.effectiveAppearance.name == .darkAqua || NSApp.effectiveAppearance.name == .vibrantDark
+            let newTheme = isDark ? "vs-dark" : "vs"
+            
+            if currentTheme != newTheme {
+                currentTheme = newTheme
+                
+                // Update Monaco theme
+                let backgroundColor = newTheme == "vs-dark" ? "#1e1e1e" : "#ffffff"
+                let script = """
+                if (window.monacoEditor) {
+                    monaco.editor.setTheme('\(newTheme)');
+                    document.body.style.backgroundColor = '\(backgroundColor)';
+                }
+                """
+                webView.evaluateJavaScript(script, completionHandler: nil)
+            }
         }
         
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -296,6 +362,11 @@ struct MonacoEditorView: NSViewRepresentable {
             DispatchQueue.main.async {
                 // Make webView first responder
                 webView.window?.makeFirstResponder(webView)
+                
+                // Ensure theme matches current system/appearance setting
+                let isDark = NSApp.effectiveAppearance.name == .darkAqua || NSApp.effectiveAppearance.name == .vibrantDark
+                let theme = isDark ? "vs-dark" : "vs"
+                currentTheme = theme
                 
                 // Force focus on Monaco editor and ensure it's editable
                 let focusScript = """
@@ -313,6 +384,15 @@ struct MonacoEditorView: NSViewRepresentable {
                 }
                 """
                 webView.evaluateJavaScript(focusScript, completionHandler: nil)
+                
+                // Set theme after editor is ready
+                let themeScript = """
+                if (window.monacoEditor) {
+                    monaco.editor.setTheme('\(theme)');
+                    document.body.style.backgroundColor = '\(theme == "vs-dark" ? "#1e1e1e" : "#ffffff")';
+                }
+                """
+                webView.evaluateJavaScript(themeScript, completionHandler: nil)
             }
         }
         
