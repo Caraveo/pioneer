@@ -133,6 +133,7 @@ struct CodeEditorView: View {
                                 monacoWebView = webView
                             }
                         )
+                        .id("\(currentNode.id.uuidString)-\(selectedFile.id.uuidString)") // Unique ID per node+file
                         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
                         .onChange(of: projectManager.selectedNode?.id) { oldId in
                             // Before switching, get current content from Monaco and save

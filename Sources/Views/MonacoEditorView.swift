@@ -24,14 +24,17 @@ struct MonacoEditorView: NSViewRepresentable {
             webView.setValue(false, forKey: "drawsBackground")
         }
         
-        // Make webView accept first responder and handle keyboard
+        // Critical: Make webView accept first responder for keyboard input
         webView.setValue(true, forKey: "acceptsFirstResponder")
         
-        // Enable keyboard input in webView - ensure it can become first responder
+        // Enable keyboard input in webView
         let acceptsFirstResponderSelector = NSSelectorFromString("setAcceptsFirstResponder:")
         if webView.responds(to: acceptsFirstResponderSelector) {
             webView.perform(acceptsFirstResponderSelector, with: true)
         }
+        
+        // Set custom user agent to help with keyboard handling
+        webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15"
         
         // Create a container view that can become first responder
         let containerView = FocusableWebViewContainer(webView: webView)
@@ -207,22 +210,30 @@ struct MonacoEditorView: NSViewRepresentable {
                     // Make container focusable and ensure it can receive input
                     const container = document.getElementById('container');
                     container.setAttribute('tabindex', '0');
-                    container.focus();
+                    container.style.outline = 'none';
                     
                     // Listen for clicks to ensure focus
                     document.addEventListener('click', function(e) {
                         if (window.monacoEditor) {
                             window.monacoEditor.focus();
-                            container.focus();
                         }
                     }, true);
                     
                     // Listen for keydown to ensure editor receives input
                     document.addEventListener('keydown', function(e) {
-                        if (window.monacoEditor && !window.monacoEditor.hasTextFocus()) {
-                            window.monacoEditor.focus();
+                        if (window.monacoEditor) {
+                            if (!window.monacoEditor.hasTextFocus()) {
+                                window.monacoEditor.focus();
+                            }
+                            // Don't prevent default - let Monaco handle it
                         }
-                    }, true);
+                    }, false); // Use capture: false so Monaco can handle it
+                    
+                    // Ensure editor is always editable
+                    window.monacoEditor.updateOptions({
+                        readOnly: false,
+                        domReadOnly: false
+                    });
                     
                     // Listen for content changes
                     window.monacoEditor.onDidChangeModelContent(function() {
@@ -274,10 +285,19 @@ struct MonacoEditorView: NSViewRepresentable {
                 // Make webView first responder
                 webView.window?.makeFirstResponder(webView)
                 
-                // Force focus on Monaco editor
+                // Force focus on Monaco editor and ensure it's editable
                 let focusScript = """
                 if (window.monacoEditor) {
                     window.monacoEditor.focus();
+                    window.monacoEditor.updateOptions({
+                        readOnly: false,
+                        domReadOnly: false
+                    });
+                    // Ensure the editor container can receive focus
+                    const container = document.getElementById('container');
+                    if (container) {
+                        container.focus();
+                    }
                 }
                 """
                 webView.evaluateJavaScript(focusScript, completionHandler: nil)
@@ -408,12 +428,29 @@ class FocusableWebViewContainer: NSView {
     }
     
     override func keyDown(with event: NSEvent) {
-        // Don't intercept - just ensure focus and let webView handle it naturally
+        // Ensure webView is first responder, then let it handle the event
         if window?.firstResponder !== webView {
             window?.makeFirstResponder(webView)
+            // After making first responder, forward the event
+            DispatchQueue.main.async {
+                self.webView.keyDown(with: event)
+            }
+        } else {
+            // Already first responder, forward directly
+            webView.keyDown(with: event)
         }
-        // Don't call super or forward - let the event propagate naturally to webView
-        // The webView will receive it if it's first responder
+    }
+    
+    override func keyUp(with event: NSEvent) {
+        if window?.firstResponder === webView {
+            webView.keyUp(with: event)
+        }
+    }
+    
+    override func flagsChanged(with event: NSEvent) {
+        if window?.firstResponder === webView {
+            webView.flagsChanged(with: event)
+        }
     }
     
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
