@@ -231,6 +231,27 @@ class ProjectManager: ObservableObject {
         nodeProjectService.openProjectInFinder(for: node)
     }
     
+    /// Save the currently selected node's files to the nodes array
+    func saveCurrentNodeFiles() {
+        guard let selectedNode = selectedNode,
+              let index = nodes.firstIndex(where: { $0.id == selectedNode.id }) else {
+            return
+        }
+        
+        // Update the node in the array with the current selectedNode's state
+        nodes[index] = selectedNode
+        
+        // Save files to disk
+        Task {
+            do {
+                let projectPath = nodeProjectService.getProjectPath(for: selectedNode)
+                try await nodeProjectService.saveAllFiles(node: selectedNode, projectPath: projectPath)
+            } catch {
+                print("Failed to save node files: \(error)")
+            }
+        }
+    }
+    
     func deleteNode(_ node: Node) {
         nodes.removeAll { $0.id == node.id }
         // Remove connections to this node

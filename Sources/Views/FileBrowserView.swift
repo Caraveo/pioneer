@@ -68,6 +68,9 @@ struct FileBrowserView: View {
     }
     
     private func selectFile(_ fileId: UUID) {
+        // Save current file before switching
+        projectManager.saveCurrentNodeFiles()
+        
         selectedFileId = fileId
         if let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
             projectManager.nodes[index].selectedFileId = fileId
@@ -76,6 +79,9 @@ struct FileBrowserView: View {
     }
     
     private func addNewFile() {
+        // Save current file before adding new one
+        projectManager.saveCurrentNodeFiles()
+        
         let newFile = ProjectFile(
             path: "new_file.\(node.language.fileExtension)",
             name: "new_file.\(node.language.fileExtension)",

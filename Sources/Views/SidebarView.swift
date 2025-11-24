@@ -29,8 +29,16 @@ struct SidebarView: View {
             List(selection: Binding(
                 get: { projectManager.selectedNode?.id },
                 set: { id in
+                    // Save current node's files before switching
+                    if let currentNode = projectManager.selectedNode {
+                        projectManager.saveCurrentNodeFiles()
+                    }
+                    
                     if let id = id {
-                        projectManager.selectedNode = projectManager.nodes.first { $0.id == id }
+                        // Get the node from the array (which should have latest changes)
+                        if let index = projectManager.nodes.firstIndex(where: { $0.id == id }) {
+                            projectManager.selectedNode = projectManager.nodes[index]
+                        }
                     }
                 }
             )) {

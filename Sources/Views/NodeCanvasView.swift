@@ -91,6 +91,8 @@ struct NodeCanvasView: View {
                                     }
                             )
                             .onTapGesture {
+                                // Save current node's files before switching
+                                projectManager.saveCurrentNodeFiles()
                                 projectManager.selectedNode = node
                             }
                             .onHover { hovering in

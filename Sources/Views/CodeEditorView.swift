@@ -9,18 +9,18 @@ struct CodeEditorView: View {
     var body: some View {
         HStack(spacing: 0) {
             // File browser
-            if let node = projectManager.selectedNode {
+            if let node = projectManager.selectedNode,
+               let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
                 FileBrowserView(
                     selectedFileId: Binding(
-                        get: { node.selectedFileId },
+                        get: { projectManager.nodes[nodeIndex].selectedFileId },
                         set: { newId in
-                            if let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
-                                projectManager.nodes[index].selectedFileId = newId
-                                projectManager.selectedNode = projectManager.nodes[index]
-                            }
+                            projectManager.saveCurrentNodeFiles()
+                            projectManager.nodes[nodeIndex].selectedFileId = newId
+                            projectManager.selectedNode = projectManager.nodes[nodeIndex]
                         }
                     ),
-                    node: node
+                    node: projectManager.nodes[nodeIndex]
                 )
                 
                 Divider()
@@ -28,15 +28,17 @@ struct CodeEditorView: View {
             
             VStack(alignment: .leading, spacing: 0) {
                 // Header
-                if let node = projectManager.selectedNode {
+                if let node = projectManager.selectedNode,
+                   let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
+                    let currentNode = projectManager.nodes[nodeIndex]
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Image(systemName: node.type.icon)
-                                .foregroundColor(node.type.color)
-                            Text(node.selectedFile?.name ?? node.name)
+                            Image(systemName: currentNode.type.icon)
+                                .foregroundColor(currentNode.type.color)
+                            Text(currentNode.selectedFile?.name ?? currentNode.name)
                                 .font(.headline)
                             
-                            if let selectedFile = node.selectedFile {
+                            if let selectedFile = currentNode.selectedFile {
                                 Text(selectedFile.path)
                                     .font(.caption)
                                     .foregroundColor(.secondary)
@@ -45,13 +47,13 @@ struct CodeEditorView: View {
                             Spacer()
                             
                             Picker("Language", selection: Binding(
-                                get: { node.selectedFile?.language ?? node.language },
+                                get: { currentNode.selectedFile?.language ?? currentNode.language },
                                 set: { newLanguage in
-                                    if let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }),
-                                       let fileId = node.selectedFileId,
-                                       let fileIndex = projectManager.nodes[index].files.firstIndex(where: { $0.id == fileId }) {
-                                        projectManager.nodes[index].files[fileIndex].language = newLanguage
-                                        projectManager.selectedNode = projectManager.nodes[index]
+                                    projectManager.saveCurrentNodeFiles()
+                                    if let fileId = currentNode.selectedFileId,
+                                       let fileIndex = projectManager.nodes[nodeIndex].files.firstIndex(where: { $0.id == fileId }) {
+                                        projectManager.nodes[nodeIndex].files[fileIndex].language = newLanguage
+                                        projectManager.selectedNode = projectManager.nodes[nodeIndex]
                                     }
                                 }
                             )) {
@@ -67,7 +69,7 @@ struct CodeEditorView: View {
                             .frame(width: 150)
                             
                             Button(action: {
-                                projectManager.openNodeProjectInFinder(node)
+                                projectManager.openNodeProjectInFinder(currentNode)
                             }) {
                                 HStack(spacing: 4) {
                                     Image(systemName: "folder")
@@ -80,7 +82,7 @@ struct CodeEditorView: View {
                         .padding(.horizontal)
                         .padding(.top, 12)
                         
-                        Text(node.type.rawValue)
+                        Text(currentNode.type.rawValue)
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .padding(.horizontal)
@@ -91,26 +93,35 @@ struct CodeEditorView: View {
                     Divider()
                     
                     // Code editor with Monaco Editor (VSCode's editor)
-                    if let selectedFile = node.selectedFile {
+                    if let selectedFile = currentNode.selectedFile {
                         MonacoEditorView(
                             text: Binding(
                                 get: {
-                                    selectedFile.content
+                                    // Always get from the nodes array to ensure we have latest
+                                    if let fileId = currentNode.selectedFileId,
+                                       let file = projectManager.nodes[nodeIndex].files.first(where: { $0.id == fileId }) {
+                                        return file.content
+                                    }
+                                    return selectedFile.content
                                 },
                                 set: { newValue in
-                                    if let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }),
-                                       let fileId = node.selectedFileId,
-                                       let fileIndex = projectManager.nodes[index].files.firstIndex(where: { $0.id == fileId }) {
-                                        projectManager.nodes[index].files[fileIndex].content = newValue
+                                    // Update both the nodes array and selectedNode
+                                    if let fileId = currentNode.selectedFileId,
+                                       let fileIndex = projectManager.nodes[nodeIndex].files.firstIndex(where: { $0.id == fileId }) {
+                                        // Update in nodes array
+                                        projectManager.nodes[nodeIndex].files[fileIndex].content = newValue
+                                        
                                         // Also update main code for backward compatibility
                                         if fileIndex == 0 {
-                                            projectManager.nodes[index].code = newValue
+                                            projectManager.nodes[nodeIndex].code = newValue
                                         }
-                                        projectManager.selectedNode = projectManager.nodes[index]
+                                        
+                                        // Update selectedNode to match
+                                        projectManager.selectedNode = projectManager.nodes[nodeIndex]
                                         
                                         // Save to project file
                                         Task {
-                                            await saveFileToProject(node: projectManager.nodes[index], file: projectManager.nodes[index].files[fileIndex])
+                                            await saveFileToProject(node: projectManager.nodes[nodeIndex], file: projectManager.nodes[nodeIndex].files[fileIndex])
                                         }
                                     }
                                 }
@@ -118,6 +129,10 @@ struct CodeEditorView: View {
                             language: selectedFile.language
                         )
                         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
+                        .onChange(of: projectManager.selectedNode?.id) { _ in
+                            // Save files when switching nodes
+                            projectManager.saveCurrentNodeFiles()
+                        }
                     } else {
                         VStack {
                             Spacer()
