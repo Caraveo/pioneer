@@ -527,37 +527,22 @@ class FocusableWebViewContainer: NSView {
     }
     
     override func keyDown(with event: NSEvent) {
-        // Ensure webView is first responder, then let it handle the event
-        if window?.firstResponder !== webView {
-            window?.makeFirstResponder(webView)
-            // After making first responder, forward the event
-            DispatchQueue.main.async {
-                self.webView.keyDown(with: event)
-            }
-        } else {
-            // Already first responder, forward directly
-            webView.keyDown(with: event)
-        }
+        // Simply forward to webView - no interference
+        webView.keyDown(with: event)
     }
     
     override func keyUp(with event: NSEvent) {
-        if window?.firstResponder === webView {
-            webView.keyUp(with: event)
-        }
+        // Simply forward to webView
+        webView.keyUp(with: event)
     }
     
     override func flagsChanged(with event: NSEvent) {
-        if window?.firstResponder === webView {
-            webView.flagsChanged(with: event)
-        }
+        // Simply forward to webView
+        webView.flagsChanged(with: event)
     }
     
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        // Ensure webView has focus
-        if window?.firstResponder !== webView {
-            window?.makeFirstResponder(webView)
-        }
-        // Let webView handle it
+        // Let webView handle key equivalents
         return webView.performKeyEquivalent(with: event)
     }
     
