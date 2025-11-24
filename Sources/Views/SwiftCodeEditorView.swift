@@ -26,7 +26,15 @@ struct SwiftCodeEditorView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         
-        let textView = CodeTextView()
+        // Create text storage system
+        let textContainer = NSTextContainer()
+        let layoutManager = NSLayoutManager()
+        let textStorage = NSTextStorage()
+        
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        
+        let textView = CodeTextView(frame: .zero, textContainer: textContainer)
         textView.delegate = context.coordinator
         textView.language = language
         textView.isEditable = true
