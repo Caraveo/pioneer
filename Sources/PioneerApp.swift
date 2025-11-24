@@ -14,9 +14,27 @@ struct PioneerApp: App {
                 .sheet(isPresented: $showAISettings) {
                     AISettingsView(aiService: projectManager.aiService)
                 }
+                .onAppear {
+                    // Ensure window is key when app appears
+                    DispatchQueue.main.async {
+                        NSApplication.shared.activate(ignoringOtherApps: true)
+                        if let window = NSApplication.shared.keyWindow {
+                            window.makeKeyAndOrderFront(nil)
+                        }
+                    }
+                }
         }
         .windowStyle(.automatic)
         .defaultSize(width: 1200, height: 800)
+        .commands {
+            // Add command to force window focus
+            CommandGroup(after: .windowArrangement) {
+                Button("Focus Editor") {
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+            }
+        }
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Node") {
