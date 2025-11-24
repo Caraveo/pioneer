@@ -97,14 +97,30 @@ struct FileBrowserView: View {
     }
     
     private func deleteFile(_ fileId: UUID) {
-        if let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
-            projectManager.nodes[index].files.removeAll { $0.id == fileId }
-            
-            // If deleted file was selected, select first file or none
-            if projectManager.nodes[index].selectedFileId == fileId {
-                projectManager.nodes[index].selectedFileId = projectManager.nodes[index].files.first?.id
-            }
-            
+        // Save current file before deleting
+        projectManager.saveCurrentNodeFiles()
+        
+        guard let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }),
+              index < projectManager.nodes.count else {
+            return
+        }
+        
+        // Remove the file
+        projectManager.nodes[index].files.removeAll { $0.id == fileId }
+        
+        // If deleted file was selected, select first file or none
+        if projectManager.nodes[index].selectedFileId == fileId {
+            projectManager.nodes[index].selectedFileId = projectManager.nodes[index].files.first?.id
+        }
+        
+        // Update selected node
+        projectManager.selectedNode = projectManager.nodes[index]
+        
+        // Ensure at least one file exists (main file)
+        if projectManager.nodes[index].files.isEmpty {
+            let mainFile = projectManager.nodes[index].getOrCreateMainFile()
+            projectManager.nodes[index].files.append(mainFile)
+            projectManager.nodes[index].selectedFileId = mainFile.id
             projectManager.selectedNode = projectManager.nodes[index]
         }
     }

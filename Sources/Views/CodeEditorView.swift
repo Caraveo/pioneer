@@ -9,18 +9,36 @@ struct CodeEditorView: View {
     var body: some View {
         HStack(spacing: 0) {
             // File browser
-            if let node = projectManager.selectedNode,
-               let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
+            if let node = projectManager.selectedNode {
                 FileBrowserView(
                     selectedFileId: Binding(
-                        get: { projectManager.nodes[nodeIndex].selectedFileId },
+                        get: {
+                            // Always look up node index fresh to avoid stale indices
+                            guard let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == node.id }),
+                                  nodeIndex < projectManager.nodes.count else {
+                                return nil
+                            }
+                            return projectManager.nodes[nodeIndex].selectedFileId
+                        },
                         set: { newId in
                             projectManager.saveCurrentNodeFiles()
+                            // Always look up node index fresh
+                            guard let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == node.id }),
+                                  nodeIndex < projectManager.nodes.count else {
+                                return
+                            }
                             projectManager.nodes[nodeIndex].selectedFileId = newId
                             projectManager.selectedNode = projectManager.nodes[nodeIndex]
                         }
                     ),
-                    node: projectManager.nodes[nodeIndex]
+                    node: {
+                        // Always get fresh node from array
+                        guard let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == node.id }),
+                              nodeIndex < projectManager.nodes.count else {
+                            return node // Fallback to passed node
+                        }
+                        return projectManager.nodes[nodeIndex]
+                    }()
                 )
                 
                 Divider()
@@ -28,9 +46,15 @@ struct CodeEditorView: View {
             
             VStack(alignment: .leading, spacing: 0) {
                 // Header
-                if let node = projectManager.selectedNode,
-                   let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
-                    let currentNode = projectManager.nodes[nodeIndex]
+                if let node = projectManager.selectedNode {
+                    // Always get fresh node from array to avoid stale indices
+                    let currentNode: Node = {
+                        guard let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == node.id }),
+                              nodeIndex < projectManager.nodes.count else {
+                            return node // Fallback to passed node
+                        }
+                        return projectManager.nodes[nodeIndex]
+                    }()
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Image(systemName: currentNode.type.icon)
@@ -50,11 +74,15 @@ struct CodeEditorView: View {
                                 get: { currentNode.selectedFile?.language ?? currentNode.language },
                                 set: { newLanguage in
                                     projectManager.saveCurrentNodeFiles()
-                                    if let fileId = currentNode.selectedFileId,
-                                       let fileIndex = projectManager.nodes[nodeIndex].files.firstIndex(where: { $0.id == fileId }) {
-                                        projectManager.nodes[nodeIndex].files[fileIndex].language = newLanguage
-                                        projectManager.selectedNode = projectManager.nodes[nodeIndex]
+                                    // Always look up node index fresh
+                                    guard let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == currentNode.id }),
+                                          nodeIndex < projectManager.nodes.count,
+                                          let fileId = currentNode.selectedFileId,
+                                          let fileIndex = projectManager.nodes[nodeIndex].files.firstIndex(where: { $0.id == fileId }) else {
+                                        return
                                     }
+                                    projectManager.nodes[nodeIndex].files[fileIndex].language = newLanguage
+                                    projectManager.selectedNode = projectManager.nodes[nodeIndex]
                                 }
                             )) {
                                 ForEach(CodeLanguage.allCases, id: \.self) { language in
