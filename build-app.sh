@@ -97,9 +97,9 @@ cat > "${CONTENTS_DIR}/Info.plist" << EOF
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.0.2</string>
+    <string>0.0.3</string>
     <key>CFBundleVersion</key>
-    <string>2</string>
+    <string>3</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>NSHumanReadableCopyright</key>
@@ -126,5 +126,37 @@ cat >> "${CONTENTS_DIR}/Info.plist" << EOF
 EOF
 
 echo "App bundle created: ${APP_BUNDLE}"
+
+# Code sign the app
+echo "Code signing ${APP_BUNDLE}..."
+SIGNING_IDENTITY=""
+if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+    SIGNING_IDENTITY="$APPLE_SIGNING_IDENTITY"
+elif security find-identity -v -p codesigning | grep -q "Developer ID Application"; then
+    SIGNING_IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+elif security find-identity -v -p codesigning | grep -q "Apple Development"; then
+    SIGNING_IDENTITY=$(security find-identity -v -p codesigning | grep "Apple Development" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+fi
+
+if [ -n "$SIGNING_IDENTITY" ]; then
+    codesign --force --deep --sign "$SIGNING_IDENTITY" --options runtime --timestamp "${APP_BUNDLE}"
+    if [ $? -eq 0 ]; then
+        echo "✓ App signed successfully with: $SIGNING_IDENTITY"
+        # Verify signature
+        codesign --verify --verbose "${APP_BUNDLE}"
+        if [ $? -eq 0 ]; then
+            echo "✓ Signature verified"
+        else
+            echo "⚠ Warning: Signature verification failed"
+        fi
+    else
+        echo "⚠ Warning: Code signing failed. App will work but may show security warnings."
+    fi
+else
+    echo "⚠ Warning: No code signing identity found. App will not be signed."
+    echo "   To sign the app, set APPLE_SIGNING_IDENTITY environment variable or"
+    echo "   ensure you have a valid Developer ID or Apple Development certificate."
+fi
+
 echo "You can now run it with: open ${APP_BUNDLE}"
 
