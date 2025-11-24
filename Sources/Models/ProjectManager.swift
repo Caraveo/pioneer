@@ -4,8 +4,8 @@ import Combine
 import AppKit
 
 enum ViewMode: String, CaseIterable {
-    case nodeCanvas = "NODE CANVAS"
-    case editor = "EDITOR MODE"
+    case nodeCanvas = "NODES"
+    case editor = "EDITOR"
     
     var icon: String {
         switch self {
