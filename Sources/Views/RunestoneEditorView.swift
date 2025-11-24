@@ -77,8 +77,12 @@ struct RunestoneEditorView: NSViewRepresentable {
         }
         
         // Ensure focus
-        if !textView.window?.firstResponder.isEqual(textView) ?? true {
-            textView.window?.makeFirstResponder(textView)
+        if let window = textView.window, let firstResponder = window.firstResponder {
+            if !firstResponder.isEqual(textView) {
+                window.makeFirstResponder(textView)
+            }
+        } else if let window = textView.window {
+            window.makeFirstResponder(textView)
         }
     }
     
