@@ -12,15 +12,11 @@ let package = Package(
             targets: ["Pioneer"]
         )
     ],
-    dependencies: [
-        .package(url: "https://github.com/tree-sitter/tree-sitter", from: "0.20.9"),
-    ],
+    dependencies: [],
     targets: [
         .executableTarget(
             name: "Pioneer",
-            dependencies: [
-                .product(name: "TreeSitter", package: "tree-sitter"),
-            ],
+            dependencies: [],
             path: "Sources"
         )
     ]
