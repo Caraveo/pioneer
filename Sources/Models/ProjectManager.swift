@@ -131,7 +131,7 @@ class ProjectManager: ObservableObject {
     }
     
     func createNewNode() {
-        let newNode = Node(
+        var newNode = Node(
             name: "New Node \(nodes.count + 1)",
             type: .custom,
             position: CGPoint(
@@ -139,16 +139,13 @@ class ProjectManager: ObservableObject {
                 y: 200 + CGFloat(nodes.count) * 50
             ),
             code: "",
-            language: .swift,
-            files: [
-                ProjectFile(
-                    path: "Sources/main.swift",
-                    name: "main.swift",
-                    content: "",
-                    language: .swift
-                )
-            ]
+            language: .swift
         )
+        
+        // Get or create main file
+        let mainFile = newNode.getOrCreateMainFile()
+        newNode.selectedFileId = mainFile.id
+        
         nodes.append(newNode)
         selectedNode = newNode
         
@@ -160,13 +157,18 @@ class ProjectManager: ObservableObject {
     
     private func initializeNodeProject(node: Node) async {
         do {
-            // Create project structure
-            try await nodeProjectService.createProjectStructure(for: node)
-            
-            // Get project path and update node
-            let projectPath = nodeProjectService.getProjectPath(for: node)
-            
+            // Ensure node has a main file
             if let index = nodes.firstIndex(where: { $0.id == node.id }) {
+                let mainFile = nodes[index].getOrCreateMainFile()
+                if nodes[index].selectedFileId == nil {
+                    nodes[index].selectedFileId = mainFile.id
+                }
+                
+                // Create project structure
+                try await nodeProjectService.createProjectStructure(for: nodes[index])
+                
+                // Get project path and update node
+                let projectPath = nodeProjectService.getProjectPath(for: nodes[index])
                 nodes[index].projectPath = projectPath.path
                 
                 // If it's a Python node, create its virtual environment
@@ -191,16 +193,24 @@ class ProjectManager: ObservableObject {
             
             nodes[index] = node
             
+            // Ensure main file exists when language changes
+            if oldLanguage != node.language {
+                let mainFile = nodes[index].getOrCreateMainFile()
+                if nodes[index].selectedFileId == nil {
+                    nodes[index].selectedFileId = mainFile.id
+                }
+            }
+            
             // Ensure project structure exists
             if node.projectPath == nil || oldProjectPath != node.projectPath {
                 Task {
-                    await initializeNodeProject(node: node)
+                    await initializeNodeProject(node: nodes[index])
                 }
             } else {
                 // Save all files to project
                 Task {
                     do {
-                        try await nodeProjectService.saveAllFiles(node: node, projectPath: nodeProjectService.getProjectPath(for: node))
+                        try await nodeProjectService.saveAllFiles(node: nodes[index], projectPath: nodeProjectService.getProjectPath(for: nodes[index]))
                     } catch {
                         print("Failed to save files: \(error)")
                     }
@@ -210,19 +220,19 @@ class ProjectManager: ObservableObject {
             // If language changed to Python, ensure virtual environment exists
             if node.language == .python && oldLanguage != .python {
                 Task {
-                    await pythonBridge.ensureVirtualEnvironment(for: node)
+                    await pythonBridge.ensureVirtualEnvironment(for: nodes[index])
                 }
             }
             
             // If requirements changed, update the environment
             if node.language == .python && node.pythonRequirements != nodes[index].pythonRequirements {
                 Task {
-                    await pythonBridge.updatePythonRequirements(for: node)
+                    await pythonBridge.updatePythonRequirements(for: nodes[index])
                 }
             }
             
             if selectedNode?.id == node.id {
-                selectedNode = node
+                selectedNode = nodes[index]
             }
         }
     }

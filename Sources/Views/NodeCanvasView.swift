@@ -34,7 +34,7 @@ struct NodeCanvasView: View {
                         ConnectionView(
                             from: fromPoint,
                             to: toPoint,
-                            color: fromNode.type.color,
+                            color: fromNode.language.color,
                             isTemporary: true
                         )
                     }
@@ -46,7 +46,7 @@ struct NodeCanvasView: View {
                                 ConnectionView(
                                     from: getConnectionPoint(for: node, isOutput: true),
                                     to: getConnectionPoint(for: targetNode, isOutput: false),
-                                    color: node.type.color
+                                    color: node.language.color
                                 )
                             }
                         }
@@ -222,29 +222,14 @@ struct NodeCanvasView: View {
                 
                 // Update the selected node's code
                 if let index = projectManager.nodes.firstIndex(where: { $0.id == selectedNode.id }) {
-                    // Update main file or create new file if none exists
-                    if let fileId = projectManager.nodes[index].selectedFileId,
-                       let fileIndex = projectManager.nodes[index].files.firstIndex(where: { $0.id == fileId }) {
-                        // Update existing selected file
+                    // Ensure main file exists
+                    let mainFile = projectManager.nodes[index].getOrCreateMainFile()
+                    
+                    // Update main file content
+                    if let fileIndex = projectManager.nodes[index].files.firstIndex(where: { $0.id == mainFile.id }) {
                         projectManager.nodes[index].files[fileIndex].content = codeOnly
                         projectManager.nodes[index].code = codeOnly
-                    } else if let firstFile = projectManager.nodes[index].files.first {
-                        // Update first file if no file is selected
-                        let fileIndex = projectManager.nodes[index].files.firstIndex(where: { $0.id == firstFile.id })!
-                        projectManager.nodes[index].files[fileIndex].content = codeOnly
-                        projectManager.nodes[index].code = codeOnly
-                        projectManager.nodes[index].selectedFileId = firstFile.id
-                    } else {
-                        // Create main file if no files exist
-                        let mainFile = ProjectFile(
-                            path: getMainFilePath(for: projectManager.nodes[index].language),
-                            name: getMainFileName(for: projectManager.nodes[index].language),
-                            content: codeOnly,
-                            language: projectManager.nodes[index].language
-                        )
-                        projectManager.nodes[index].files.append(mainFile)
                         projectManager.nodes[index].selectedFileId = mainFile.id
-                        projectManager.nodes[index].code = codeOnly
                     }
                     
                     // Save all files to project
@@ -282,45 +267,6 @@ struct NodeCanvasView: View {
         }
     }
     
-    private func getMainFilePath(for language: CodeLanguage) -> String {
-        switch language {
-        case .python: return "src/main.py"
-        case .swift: return "Sources/main.swift"
-        case .typescript: return "src/index.ts"
-        case .javascript: return "src/index.js"
-        case .html: return "index.html"
-        case .css: return "css/style.css"
-        case .dockerfile: return "Dockerfile"
-        case .kubernetes, .yaml: return "config.yaml"
-        case .terraform: return "main.tf"
-        case .cloudformation: return "template.yaml"
-        case .json: return "config.json"
-        case .sql: return "schema.sql"
-        case .bash: return "script.sh"
-        case .markdown: return "README.md"
-        case .scaffolding: return "scaffold.txt"
-        }
-    }
-    
-    private func getMainFileName(for language: CodeLanguage) -> String {
-        switch language {
-        case .python: return "main.py"
-        case .swift: return "main.swift"
-        case .typescript: return "index.ts"
-        case .javascript: return "index.js"
-        case .html: return "index.html"
-        case .css: return "style.css"
-        case .dockerfile: return "Dockerfile"
-        case .kubernetes, .yaml: return "config.yaml"
-        case .terraform: return "main.tf"
-        case .cloudformation: return "template.yaml"
-        case .json: return "config.json"
-        case .sql: return "schema.sql"
-        case .bash: return "script.sh"
-        case .markdown: return "README.md"
-        case .scaffolding: return "scaffold.txt"
-        }
-    }
     
     private func extractCodeFromResponse(_ response: String) -> String {
         // Remove markdown code blocks if present
@@ -397,10 +343,17 @@ struct NodeView: View {
             // Header
             HStack {
                 Image(systemName: node.type.icon)
-                    .foregroundColor(node.type.color)
+                    .foregroundColor(node.language.color)
                 Text(node.name)
                     .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(isSelected ? .primary : .primary)
                 Spacer()
+                
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(node.language.color)
+                        .font(.system(size: 14))
+                }
             }
             .padding(.horizontal, 12)
             .padding(.top, 10)
@@ -410,15 +363,22 @@ struct NodeView: View {
             // Content preview
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Image(systemName: node.language == .swift ? "swift" : "python")
+                    Image(systemName: node.language.icon)
                         .font(.system(size: 10))
+                        .foregroundColor(node.language.color)
                     Text(node.language.rawValue)
                         .font(.system(size: 10))
+                        .foregroundColor(node.language.color)
                 }
-                .foregroundColor(.secondary)
                 .padding(.horizontal, 12)
                 
-                if !node.code.isEmpty {
+                if let mainFile = node.selectedFile, !mainFile.content.isEmpty {
+                    Text(mainFile.content.prefix(50) + (mainFile.content.count > 50 ? "..." : ""))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 12)
+                        .lineLimit(2)
+                } else if !node.code.isEmpty {
                     Text(node.code.prefix(50) + (node.code.count > 50 ? "..." : ""))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(.secondary)
@@ -436,7 +396,7 @@ struct NodeView: View {
                     isOutput: false,
                     isConnected: hasInputConnections,
                     isHovered: hoveredConnectionPoint?.nodeId == node.id && hoveredConnectionPoint?.isOutput == false,
-                    color: node.type.color
+                    color: node.language.color
                 )
                 
                 Spacer()
@@ -447,7 +407,7 @@ struct NodeView: View {
                     isOutput: true,
                     isConnected: hasOutputConnections,
                     isHovered: hoveredConnectionPoint?.nodeId == node.id && hoveredConnectionPoint?.isOutput == true,
-                    color: node.type.color
+                    color: node.language.color
                 )
             }
             .padding(.horizontal, 12)
@@ -455,13 +415,20 @@ struct NodeView: View {
         }
         .frame(width: 200)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 12)
                 .fill(Color(NSColor.controlBackgroundColor))
-                .shadow(color: .black.opacity(0.1), radius: isSelected ? 4 : 2, x: 0, y: 1)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? node.type.color : Color.clear, lineWidth: 2)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(
+                            isSelected ? node.language.color : Color.clear,
+                            lineWidth: isSelected ? 3 : 0
+                        )
+                )
+                .shadow(
+                    color: isSelected ? node.language.color.opacity(0.4) : .black.opacity(0.1),
+                    radius: isSelected ? 8 : 5,
+                    y: 2
+                )
         )
     }
 }

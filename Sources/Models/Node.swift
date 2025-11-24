@@ -104,10 +104,10 @@ struct Node: Identifiable, Codable {
     }
     
     /// Get main file path for a language
-    private func getMainFilePath(for language: CodeLanguage) -> String {
+    func getMainFilePath(for language: CodeLanguage) -> String {
         switch language {
         case .python: return "src/main.py"
-        case .swift: return "Sources/main.swift"
+        case .swift: return "Sources/app.swift"
         case .typescript: return "src/index.ts"
         case .javascript: return "src/index.js"
         case .html: return "index.html"
@@ -125,10 +125,10 @@ struct Node: Identifiable, Codable {
     }
     
     /// Get main file name for a language
-    private func getMainFileName(for language: CodeLanguage) -> String {
+    func getMainFileName(for language: CodeLanguage) -> String {
         switch language {
         case .python: return "main.py"
-        case .swift: return "main.swift"
+        case .swift: return "app.swift"
         case .typescript: return "index.ts"
         case .javascript: return "index.js"
         case .html: return "index.html"
@@ -142,6 +142,98 @@ struct Node: Identifiable, Codable {
         case .bash: return "script.sh"
         case .markdown: return "README.md"
         case .scaffolding: return "scaffold.txt"
+        }
+    }
+    
+    /// Get or create the main file for this node
+    mutating func getOrCreateMainFile() -> ProjectFile {
+        // Check if main file already exists
+        let mainPath = getMainFilePath(for: language)
+        if let existingFile = files.first(where: { $0.path == mainPath }) {
+            return existingFile
+        }
+        
+        // Create new main file
+        let mainFile = ProjectFile(
+            path: mainPath,
+            name: getMainFileName(for: language),
+            content: code.isEmpty ? getDefaultCodeForLanguage(language) : code,
+            language: language
+        )
+        files.append(mainFile)
+        selectedFileId = mainFile.id
+        code = mainFile.content // Sync code with main file
+        
+        return mainFile
+    }
+    
+    /// Get default code template for a language
+    private func getDefaultCodeForLanguage(_ language: CodeLanguage) -> String {
+        switch language {
+        case .swift:
+            return """
+            import SwiftUI
+
+            @main
+            struct \(projectDirectoryName): App {
+                var body: some Scene {
+                    WindowGroup {
+                        ContentView()
+                    }
+                }
+            }
+
+            struct ContentView: View {
+                var body: some View {
+                    VStack {
+                        Text("Hello, \(name)!")
+                            .font(.largeTitle)
+                    }
+                    .padding()
+                }
+            }
+            """
+        case .python:
+            return """
+            # \(name)
+            # Main entry point
+
+            def main():
+                print("Hello, \(name)!")
+
+            if __name__ == "__main__":
+                main()
+            """
+        case .javascript:
+            return """
+            // \(name)
+            // Main entry point
+
+            console.log('Hello, \(name)!');
+            """
+        case .typescript:
+            return """
+            // \(name)
+            // Main entry point
+
+            console.log('Hello, \(name)!');
+            """
+        case .html:
+            return """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>\(name)</title>
+            </head>
+            <body>
+                <h1>\(name)</h1>
+            </body>
+            </html>
+            """
+        default:
+            return ""
         }
     }
 }
@@ -207,6 +299,27 @@ enum CodeLanguage: String, Codable, CaseIterable {
         case .sql: return "database"
         case .bash: return "terminal"
         case .markdown: return "doc.richtext"
+        }
+    }
+    
+    var color: Color {
+        switch self {
+        case .swift: return Color(red: 1.0, green: 0.58, blue: 0.0) // Orange
+        case .python: return Color(red: 0.2, green: 0.6, blue: 0.9) // Blue
+        case .yaml: return Color(red: 0.9, green: 0.2, blue: 0.2) // Red
+        case .json: return Color(red: 0.9, green: 0.7, blue: 0.1) // Yellow
+        case .scaffolding: return Color(red: 0.5, green: 0.5, blue: 0.5) // Gray
+        case .dockerfile: return Color(red: 0.1, green: 0.7, blue: 0.9) // Cyan
+        case .kubernetes: return Color(red: 0.3, green: 0.5, blue: 0.9) // Blue
+        case .terraform: return Color(red: 0.6, green: 0.3, blue: 0.9) // Purple
+        case .cloudformation: return Color(red: 0.9, green: 0.5, blue: 0.1) // Orange
+        case .typescript: return Color(red: 0.2, green: 0.5, blue: 0.8) // Blue
+        case .javascript: return Color(red: 0.9, green: 0.8, blue: 0.1) // Yellow
+        case .html: return Color(red: 0.9, green: 0.3, blue: 0.1) // Orange
+        case .css: return Color(red: 0.2, green: 0.6, blue: 0.8) // Blue
+        case .sql: return Color(red: 0.4, green: 0.6, blue: 0.9) // Blue
+        case .bash: return Color(red: 0.2, green: 0.7, blue: 0.3) // Green
+        case .markdown: return Color(red: 0.3, green: 0.3, blue: 0.3) // Dark Gray
         }
     }
 }

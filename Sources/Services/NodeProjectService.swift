@@ -260,63 +260,27 @@ class NodeProjectService {
     }
     
     func saveMainCodeFile(node: Node, projectPath: URL) async throws {
-        let fileName: String
-        let directory: URL
+        // Use the node's main file path
+        let mainPath = node.getMainFilePath(for: node.language)
+        let mainFileName = node.getMainFileName(for: node.language)
         
-        switch node.language {
-        case .python:
-            fileName = "main.py"
-            directory = projectPath.appendingPathComponent("src")
-        case .swift:
-            fileName = "main.swift"
-            directory = projectPath.appendingPathComponent("Sources")
-        case .typescript:
-            fileName = "index.ts"
-            directory = projectPath.appendingPathComponent("src")
-        case .javascript:
-            fileName = "index.js"
-            directory = projectPath.appendingPathComponent("src")
-        case .html:
-            fileName = "index.html"
-            directory = projectPath
-        case .css:
-            fileName = "style.css"
-            directory = projectPath.appendingPathComponent("css")
-        case .dockerfile:
-            fileName = "Dockerfile"
-            directory = projectPath
-        case .kubernetes, .yaml:
-            fileName = "\(node.projectDirectoryName).yaml"
-            directory = projectPath
-        case .terraform:
-            fileName = "main.tf"
-            directory = projectPath
-        case .cloudformation:
-            fileName = "template.yaml"
-            directory = projectPath
-        case .json:
-            fileName = "config.json"
-            directory = projectPath
-        case .sql:
-            fileName = "schema.sql"
-            directory = projectPath
-        case .bash:
-            fileName = "script.sh"
-            directory = projectPath
-        case .markdown:
-            fileName = "README.md"
-            directory = projectPath
-        case .scaffolding:
-            fileName = "scaffold.txt"
-            directory = projectPath
+        // Find the main file in the node's files
+        guard let mainFile = node.files.first(where: { $0.path == mainPath }) else {
+            // Create main file if it doesn't exist
+            var newNode = node
+            let createdFile = newNode.getOrCreateMainFile()
+            let fileURL = projectPath.appendingPathComponent(createdFile.path)
+            let directory = fileURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try createdFile.content.write(to: fileURL, atomically: true, encoding: .utf8)
+            return
         }
         
-        // Ensure directory exists
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = projectPath.appendingPathComponent(mainFile.path)
+        let directory = fileURL.deletingLastPathComponent()
         
-        // Save code to file
-        let filePath = directory.appendingPathComponent(fileName)
-        try node.code.write(to: filePath, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try mainFile.content.write(to: fileURL, atomically: true, encoding: .utf8)
     }
     
     /// Get project files for a node
