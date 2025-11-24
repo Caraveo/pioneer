@@ -24,6 +24,9 @@ struct MonacoEditorView: NSViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.add(context.coordinator, name: "pioneer")
         
+        // CRITICAL: Enable keyboard input in WKWebView
+        configuration.preferences.isElementFullscreenEnabled = true
+        
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         
@@ -31,27 +34,28 @@ struct MonacoEditorView: NSViewRepresentable {
         webView.allowsMagnification = false
         webView.allowsBackForwardNavigationGestures = false
         
-        // Configure for keyboard input
+        // Configure for keyboard input - CRITICAL SETTINGS
         if #available(macOS 11.0, *) {
             webView.setValue(false, forKey: "drawsBackground")
         }
         
-        // Critical: Make webView accept first responder for keyboard input
+        // CRITICAL: Make webView accept first responder for keyboard input
         webView.setValue(true, forKey: "acceptsFirstResponder")
         
-        // Enable keyboard input in webView
+        // CRITICAL: Enable keyboard input in webView
         let acceptsFirstResponderSelector = NSSelectorFromString("setAcceptsFirstResponder:")
         if webView.responds(to: acceptsFirstResponderSelector) {
             webView.perform(acceptsFirstResponderSelector, with: true)
         }
         
-        // Set custom user agent to help with keyboard handling
-        webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15"
+        // CRITICAL: Allow interaction
+        webView.setValue(true, forKey: "allowsLinkPreview")
         
         // Create a container view that can become first responder
         let containerView = FocusableWebViewContainer(webView: webView)
         
         // Determine initial theme based on effective appearance
+        // Use "vs" for light (system light theme) and "vs-dark" for dark
         let initialTheme = effectiveColorScheme == .dark ? "vs-dark" : "vs"
         context.coordinator.currentTheme = initialTheme
         
@@ -200,14 +204,14 @@ struct MonacoEditorView: NSViewRepresentable {
                 require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@latest/min/vs' } });
                 
                 require(['vs/editor/editor.main'], function () {
-                    // Create editor
+                    // Create editor with proper light theme
                     window.monacoEditor = monaco.editor.create(document.getElementById('container'), {
                         value: `\(escapedText)`,
                         language: '\(monacoLanguage)',
-                        theme: '\(theme)',
+                        theme: '\(theme)', // 'vs' is the system light theme, 'vs-dark' is dark
                         automaticLayout: true,
-                        fontSize: 12,
-                        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                        fontSize: 13,
+                        fontFamily: '-apple-system, BlinkMacSystemFont, "SF Mono", Menlo, Monaco, "Courier New", monospace',
                         minimap: { enabled: true },
                         scrollBeyondLastLine: false,
                         wordWrap: 'on',
@@ -222,39 +226,68 @@ struct MonacoEditorView: NSViewRepresentable {
                         insertSpaces: true,
                         detectIndentation: false,
                         readOnly: false,
-                        domReadOnly: false
+                        domReadOnly: false,
+                        // CRITICAL: Enable keyboard input
+                        contextmenu: true,
+                        mouseWheelZoom: false
                     });
                     
-                    // Ensure editor can receive focus and keyboard input
-                    window.monacoEditor.focus();
-                    
-                    // Make container focusable and ensure it can receive input
+                    // CRITICAL: Make container focusable and ensure it can receive input
                     const container = document.getElementById('container');
                     container.setAttribute('tabindex', '0');
                     container.style.outline = 'none';
+                    container.style.cursor = 'text';
                     
-                    // Listen for clicks to ensure focus
-                    document.addEventListener('click', function(e) {
+                    // CRITICAL: Ensure editor can receive focus and keyboard input immediately
+                    setTimeout(function() {
                         if (window.monacoEditor) {
                             window.monacoEditor.focus();
+                            // Force focus on the editor's text area
+                            const editorDomNode = window.monacoEditor.getDomNode();
+                            if (editorDomNode) {
+                                editorDomNode.focus();
+                            }
+                        }
+                        container.focus();
+                    }, 100);
+                    
+                    // CRITICAL: Listen for clicks to ensure focus
+                    container.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        if (window.monacoEditor) {
+                            window.monacoEditor.focus();
+                            const editorDomNode = window.monacoEditor.getDomNode();
+                            if (editorDomNode) {
+                                editorDomNode.focus();
+                            }
                         }
                     }, true);
                     
-                    // Listen for keydown to ensure editor receives input
+                    // CRITICAL: Listen for keydown to ensure editor receives input
                     document.addEventListener('keydown', function(e) {
-                        if (window.monacoEditor) {
-                            if (!window.monacoEditor.hasTextFocus()) {
-                                window.monacoEditor.focus();
+                        if (window.monacoEditor && !window.monacoEditor.hasTextFocus()) {
+                            window.monacoEditor.focus();
+                            const editorDomNode = window.monacoEditor.getDomNode();
+                            if (editorDomNode) {
+                                editorDomNode.focus();
                             }
-                            // Don't prevent default - let Monaco handle it
                         }
-                    }, false); // Use capture: false so Monaco can handle it
+                    }, true); // Use capture: true to catch early
                     
-                    // Ensure editor is always editable
+                    // CRITICAL: Ensure editor is always editable
                     window.monacoEditor.updateOptions({
                         readOnly: false,
                         domReadOnly: false
                     });
+                    
+                    // CRITICAL: Force focus on editor whenever container is focused
+                    container.addEventListener('focus', function() {
+                        if (window.monacoEditor) {
+                            setTimeout(function() {
+                                window.monacoEditor.focus();
+                            }, 0);
+                        }
+                    }, true);
                     
                     // Listen for content changes - AUTO SAVE on every change
                     let saveTimeout;
@@ -359,16 +392,17 @@ struct MonacoEditorView: NSViewRepresentable {
         
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             // Editor loaded, ensure it has focus and can receive keyboard input
-            DispatchQueue.main.async {
-                // Make webView first responder
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                // CRITICAL: Make webView first responder
                 webView.window?.makeFirstResponder(webView)
                 
                 // Ensure theme matches current system/appearance setting
+                // "vs" is Monaco's system light theme, "vs-dark" is dark theme
                 let isDark = NSApp.effectiveAppearance.name == .darkAqua || NSApp.effectiveAppearance.name == .vibrantDark
                 let theme = isDark ? "vs-dark" : "vs"
                 self.currentTheme = theme
                 
-                // Force focus on Monaco editor and ensure it's editable
+                // CRITICAL: Force focus on Monaco editor and ensure it's editable
                 let focusScript = """
                 if (window.monacoEditor) {
                     window.monacoEditor.focus();
@@ -376,6 +410,16 @@ struct MonacoEditorView: NSViewRepresentable {
                         readOnly: false,
                         domReadOnly: false
                     });
+                    // CRITICAL: Focus the editor's DOM node directly
+                    const editorDomNode = window.monacoEditor.getDomNode();
+                    if (editorDomNode) {
+                        editorDomNode.focus();
+                        // Also focus the textarea inside
+                        const textarea = editorDomNode.querySelector('textarea');
+                        if (textarea) {
+                            textarea.focus();
+                        }
+                    }
                     // Ensure the editor container can receive focus
                     const container = document.getElementById('container');
                     if (container) {
@@ -427,15 +471,24 @@ struct MonacoEditorView: NSViewRepresentable {
                 // Editor is ready, ensure focus and keyboard input
                 DispatchQueue.main.async {
                     if let webView = self.webView {
-                        // Make webView first responder with delay to ensure it works
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        // CRITICAL: Make webView first responder with delay to ensure it works
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                             webView.window?.makeFirstResponder(webView)
                             
-                            // Force focus on Monaco editor
+                            // CRITICAL: Force focus on Monaco editor and its DOM node
                             let focusScript = """
                             if (window.monacoEditor) {
                                 window.monacoEditor.focus();
                                 window.monacoEditor.updateOptions({ readOnly: false });
+                                // CRITICAL: Focus the editor's DOM node directly
+                                const editorDomNode = window.monacoEditor.getDomNode();
+                                if (editorDomNode) {
+                                    editorDomNode.focus();
+                                    const textarea = editorDomNode.querySelector('textarea');
+                                    if (textarea) {
+                                        textarea.focus();
+                                    }
+                                }
                                 // Also focus the container
                                 document.getElementById('container').focus();
                             }
