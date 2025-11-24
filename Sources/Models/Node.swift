@@ -79,20 +79,24 @@ struct Node: Identifiable, Codable {
         // This guarantees every node has at least one file
         if files.isEmpty {
             // Create main file with code or default template
+            let mainFileContent: String
+            if !code.isEmpty {
+                mainFileContent = code
+            } else {
+                // Use default template based on language
+                mainFileContent = Node.getDefaultCodeTemplate(for: language, nodeName: name, directoryName: projectDirectoryName)
+            }
+            
             let mainFile = ProjectFile(
                 path: getMainFilePath(for: language),
                 name: getMainFileName(for: language),
-                content: code.isEmpty ? getDefaultCodeForLanguage(language) : code,
+                content: mainFileContent,
                 language: language
             )
             self.files = [mainFile]
             self.selectedFileId = mainFile.id
             // Sync code with main file
-            if !code.isEmpty {
-                self.code = code
-            } else {
-                self.code = mainFile.content
-            }
+            self.code = mainFileContent
         } else if selectedFileId == nil {
             // If files exist but no file is selected, select the first one
             self.selectedFileId = files.first?.id
@@ -178,7 +182,77 @@ struct Node: Identifiable, Codable {
         return mainFile
     }
     
-    /// Get default code template for a language
+    /// Get default code template for a language (static helper)
+    private static func getDefaultCodeTemplate(for language: CodeLanguage, nodeName: String, directoryName: String) -> String {
+        switch language {
+        case .swift:
+            return """
+            import SwiftUI
+
+            @main
+            struct \(directoryName): App {
+                var body: some Scene {
+                    WindowGroup {
+                        ContentView()
+                    }
+                }
+            }
+
+            struct ContentView: View {
+                var body: some View {
+                    VStack {
+                        Text("Hello, \(nodeName)!")
+                            .font(.largeTitle)
+                    }
+                    .padding()
+                }
+            }
+            """
+        case .python:
+            return """
+            # \(nodeName)
+            # Main entry point
+
+            def main():
+                print("Hello, \(nodeName)!")
+
+            if __name__ == "__main__":
+                main()
+            """
+        case .javascript:
+            return """
+            // \(nodeName)
+            // Main entry point
+
+            console.log('Hello, \(nodeName)!');
+            """
+        case .typescript:
+            return """
+            // \(nodeName)
+            // Main entry point
+
+            console.log('Hello, \(nodeName)!');
+            """
+        case .html:
+            return """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>\(nodeName)</title>
+            </head>
+            <body>
+                <h1>\(nodeName)</h1>
+            </body>
+            </html>
+            """
+        default:
+            return ""
+        }
+    }
+    
+    /// Get default code template for a language (instance method)
     private func getDefaultCodeForLanguage(_ language: CodeLanguage) -> String {
         switch language {
         case .swift:
