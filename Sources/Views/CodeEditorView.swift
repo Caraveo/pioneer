@@ -124,10 +124,13 @@ struct CodeEditorView: View {
                                         // Update selectedNode to match
                                         projectManager.selectedNode = projectManager.nodes[nodeIndex]
                                         
-                                        // Save to project file
+                                        // AUTO SAVE immediately to project file
                                         Task {
                                             await saveFileToProject(node: projectManager.nodes[nodeIndex], file: projectManager.nodes[nodeIndex].files[fileIndex])
                                         }
+                                        
+                                        // Also save to nodes array (in-memory persistence)
+                                        projectManager.saveCurrentNodeFiles()
                                     }
                                 }
                             ),
@@ -140,40 +143,20 @@ struct CodeEditorView: View {
                         .id(editorKey) // Unique ID per node+file - forces new instance
                         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
                         .onChange(of: projectManager.selectedNode?.id) { oldId in
-                            // Before switching, get current content from Monaco and save
+                            // IMMEDIATE SAVE before switching nodes
                             if let oldId = oldId,
                                let oldNodeIndex = projectManager.nodes.firstIndex(where: { $0.id == oldId }),
                                let oldFileId = projectManager.nodes[oldNodeIndex].selectedFileId {
                                 let oldEditorKey = "\(oldId.uuidString)-\(oldFileId.uuidString)"
                                 
                                 if let webView = webViewStore[oldEditorKey] {
-                                    Task {
-                                        // Get current content from Monaco editor
-                                        let script = """
-                                        if (window.monacoEditor) {
-                                            window.monacoEditor.getValue();
-                                        } else {
-                                            "";
-                                        }
-                                        """
-                                        
-                                        if let content = await withCheckedContinuation({ continuation in
-                                            webView.evaluateJavaScript(script) { result, error in
-                                                continuation.resume(returning: result as? String)
-                                            }
-                                        }) {
-                                            // Update node with current Monaco content
-                                            if let fileIndex = projectManager.nodes[oldNodeIndex].files.firstIndex(where: { $0.id == oldFileId }) {
-                                                projectManager.nodes[oldNodeIndex].files[fileIndex].content = content
-                                                if fileIndex == 0 {
-                                                    projectManager.nodes[oldNodeIndex].code = content
-                                                }
-                                            }
-                                            
-                                            // Save files
-                                            projectManager.saveCurrentNodeFiles()
-                                        }
+                                    // Save immediately and synchronously
+                                    projectManager.saveCurrentNodeFromEditor(webView: webView) {
+                                        print("✅ Auto-saved node before switching")
                                     }
+                                } else {
+                                    // Fallback: save from nodes array
+                                    projectManager.saveCurrentNodeFiles()
                                 }
                             }
                         }

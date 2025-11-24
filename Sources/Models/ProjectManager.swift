@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Combine
 import AppKit
+import WebKit
 
 class ProjectManager: ObservableObject {
     @Published var nodes: [Node] = []
@@ -267,6 +268,54 @@ class ProjectManager: ObservableObject {
     /// Force save current node by getting latest content from editor
     func forceSaveCurrentNode() {
         saveCurrentNodeFiles()
+    }
+    
+    /// Save current node's content from Monaco editor before switching
+    /// This gets the latest content from the editor and saves it immediately
+    func saveCurrentNodeFromEditor(webView: WKWebView?, completion: @escaping () -> Void) {
+        guard let selectedNode = selectedNode,
+              let index = nodes.firstIndex(where: { $0.id == selectedNode.id }),
+              let fileId = selectedNode.selectedFileId,
+              let webView = webView else {
+            completion()
+            return
+        }
+        
+        // Get current content from Monaco editor
+        let script = """
+        if (window.monacoEditor) {
+            window.monacoEditor.getValue();
+        } else {
+            "";
+        }
+        """
+        
+        webView.evaluateJavaScript(script) { result, error in
+            let content = (result as? String) ?? ""
+            
+            // Update node with current Monaco content
+            if let fileIndex = self.nodes[index].files.firstIndex(where: { $0.id == fileId }) {
+                self.nodes[index].files[fileIndex].content = content
+                if fileIndex == 0 {
+                    self.nodes[index].code = content
+                }
+            }
+            
+            // Update selectedNode
+            self.selectedNode = self.nodes[index]
+            
+            // Save to disk immediately
+            Task {
+                do {
+                    let projectPath = self.nodeProjectService.getProjectPath(for: self.nodes[index])
+                    try await self.nodeProjectService.saveAllFiles(node: self.nodes[index], projectPath: projectPath)
+                    print("✅ Saved node \(self.nodes[index].name) before switching")
+                } catch {
+                    print("❌ Failed to save node files: \(error)")
+                }
+                completion()
+            }
+        }
     }
     
     func deleteNode(_ node: Node) {

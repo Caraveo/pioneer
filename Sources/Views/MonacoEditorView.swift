@@ -235,13 +235,25 @@ struct MonacoEditorView: NSViewRepresentable {
                         domReadOnly: false
                     });
                     
-                    // Listen for content changes
+                    // Listen for content changes - AUTO SAVE on every change
+                    let saveTimeout;
                     window.monacoEditor.onDidChangeModelContent(function() {
                         const value = window.monacoEditor.getValue();
+                        
+                        // Notify Swift immediately
                         window.webkit.messageHandlers.pioneer.postMessage({
                             type: 'contentChanged',
                             value: value
                         });
+                        
+                        // Auto-save after 1 second of no changes (debounced)
+                        clearTimeout(saveTimeout);
+                        saveTimeout = setTimeout(function() {
+                            window.webkit.messageHandlers.pioneer.postMessage({
+                                type: 'autoSave',
+                                value: value
+                            });
+                        }, 1000);
                     });
                     
                     // Listen for cursor position changes
@@ -318,6 +330,16 @@ struct MonacoEditorView: NSViewRepresentable {
                     DispatchQueue.main.async {
                         self.parent.text = value
                         self.isUpdatingFromJS = false
+                    }
+                }
+                
+            case "autoSave":
+                if let value = body["value"] as? String {
+                    lastKnownContent = value
+                    // Trigger save in background
+                    DispatchQueue.main.async {
+                        // Update binding to trigger save
+                        self.parent.text = value
                     }
                 }
                 

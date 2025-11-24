@@ -91,11 +91,11 @@ struct NodeCanvasView: View {
                                     }
                             )
                             .onTapGesture {
-                                // Force save current node's files before switching
-                                projectManager.forceSaveCurrentNode()
+                                // IMMEDIATE SAVE before switching
+                                projectManager.saveCurrentNodeFiles()
                                 
                                 // Small delay to ensure save completes
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                     projectManager.selectedNode = node
                                 }
                             }

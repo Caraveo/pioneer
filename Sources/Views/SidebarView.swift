@@ -28,15 +28,20 @@ struct SidebarView: View {
             // Node list
             List(selection: Binding(
                 get: { projectManager.selectedNode?.id },
-                set: { id in
-                    // Force save current node's files before switching
-                    projectManager.forceSaveCurrentNode()
+                set: { newId in
+                    // Get webView for current node before switching
+                    if let currentNode = projectManager.selectedNode,
+                       let fileId = currentNode.selectedFileId {
+                        let editorKey = "\(currentNode.id.uuidString)-\(fileId.uuidString)"
+                        // Access webViewStore through a notification or callback
+                        // For now, save immediately from nodes array
+                        projectManager.saveCurrentNodeFiles()
+                    }
                     
-                    // Small delay to ensure save completes
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        if let id = id {
-                            // Get the node from the array (which should have latest changes)
-                            if let index = projectManager.nodes.firstIndex(where: { $0.id == id }) {
+                    // Switch after brief delay to allow save
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        if let newId = newId {
+                            if let index = projectManager.nodes.firstIndex(where: { $0.id == newId }) {
                                 projectManager.selectedNode = projectManager.nodes[index]
                             }
                         }
