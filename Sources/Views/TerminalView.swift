@@ -160,43 +160,50 @@ struct TerminalView: View {
             workingDirectory = projectManager.nodeProjectService.getProjectPath(for: node)
         }
         
-        // Create process
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-c", command]
-        process.currentDirectoryURL = workingDirectory
-        
-        // Set up pipes
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-        
-        do {
-            try process.run()
-            process.waitUntilExit()
-            
-            // Read output
-            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            
-            var result = ""
-            
-            if let output = String(data: outputData, encoding: .utf8), !output.isEmpty {
-                result += output
+        return await withCheckedContinuation { continuation in
+            // Run process on background thread to avoid blocking
+            DispatchQueue.global(qos: .userInitiated).async {
+                // Create process
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/bash")
+                process.arguments = ["-c", command]
+                process.currentDirectoryURL = workingDirectory
+                
+                // Set up pipes
+                let outputPipe = Pipe()
+                let errorPipe = Pipe()
+                process.standardOutput = outputPipe
+                process.standardError = errorPipe
+                
+                // Set up termination handler
+                process.terminationHandler = { process in
+                    // Read output after process finishes
+                    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                    let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                    
+                    var result = ""
+                    
+                    if let output = String(data: outputData, encoding: .utf8), !output.isEmpty {
+                        result += output
+                    }
+                    
+                    if let error = String(data: errorData, encoding: .utf8), !error.isEmpty {
+                        result += error
+                    }
+                    
+                    if result.isEmpty {
+                        result = process.terminationStatus == 0 ? "" : "Command exited with status \(process.terminationStatus)\n"
+                    }
+                    
+                    continuation.resume(returning: result)
+                }
+                
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume(returning: "Error: \(error.localizedDescription)\n")
+                }
             }
-            
-            if let error = String(data: errorData, encoding: .utf8), !error.isEmpty {
-                result += error
-            }
-            
-            if result.isEmpty {
-                result = process.terminationStatus == 0 ? "" : "Command exited with status \(process.terminationStatus)\n"
-            }
-            
-            return result
-        } catch {
-            return "Error: \(error.localizedDescription)\n"
         }
     }
     
@@ -359,40 +366,48 @@ struct TerminalView: View {
     }
     
     private func runCommand(_ command: String, workingDirectory: URL) async -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-c", command]
-        process.currentDirectoryURL = workingDirectory
-        
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-        
-        do {
-            try process.run()
-            process.waitUntilExit()
-            
-            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            
-            var result = ""
-            
-            if let output = String(data: outputData, encoding: .utf8), !output.isEmpty {
-                result += output
+        return await withCheckedContinuation { continuation in
+            // Run process on background thread to avoid blocking
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/bash")
+                process.arguments = ["-c", command]
+                process.currentDirectoryURL = workingDirectory
+                
+                let outputPipe = Pipe()
+                let errorPipe = Pipe()
+                process.standardOutput = outputPipe
+                process.standardError = errorPipe
+                
+                // Set up termination handler
+                process.terminationHandler = { process in
+                    // Read output after process finishes
+                    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                    let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                    
+                    var result = ""
+                    
+                    if let output = String(data: outputData, encoding: .utf8), !output.isEmpty {
+                        result += output
+                    }
+                    
+                    if let error = String(data: errorData, encoding: .utf8), !error.isEmpty {
+                        result += error
+                    }
+                    
+                    if result.isEmpty {
+                        result = process.terminationStatus == 0 ? "" : "Command exited with status \(process.terminationStatus)\n"
+                    }
+                    
+                    continuation.resume(returning: result)
+                }
+                
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume(returning: "Error: \(error.localizedDescription)\n")
+                }
             }
-            
-            if let error = String(data: errorData, encoding: .utf8), !error.isEmpty {
-                result += error
-            }
-            
-            if result.isEmpty {
-                result = process.terminationStatus == 0 ? "" : "Command exited with status \(process.terminationStatus)\n"
-            }
-            
-            return result
-        } catch {
-            return "Error: \(error.localizedDescription)\n"
         }
     }
 }
