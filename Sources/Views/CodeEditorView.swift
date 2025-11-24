@@ -1,13 +1,10 @@
 import SwiftUI
 import AppKit
-import WebKit
 
 struct CodeEditorView: View {
     @EnvironmentObject var projectManager: ProjectManager
     @State private var editorText: String = ""
     @State private var isEditing: Bool = false
-    // Store webView per node+file combination
-    @State private var webViewStore: [String: WKWebView] = [:]
     
     var body: some View {
         HStack(spacing: 0) {
@@ -95,28 +92,19 @@ struct CodeEditorView: View {
                     
                     Divider()
                     
-                    // Code editor with Monaco Editor (VSCode's editor)
+                    // Code editor with pure Swift NSTextView
                     if let selectedFile = currentNode.selectedFile {
                         let editorKey = "\(currentNode.id.uuidString)-\(selectedFile.id.uuidString)"
                         
-                        // CRITICAL: Get content directly from the node's file - NEVER use shared state
-                        let fileContent: String = {
-                            if let fileId = currentNode.selectedFileId,
-                               let file = projectManager.nodes[nodeIndex].files.first(where: { $0.id == fileId }) {
-                                return file.content
-                            }
-                            return selectedFile.content
-                        }()
-                        
-                        MonacoEditorView(
+                        SwiftCodeEditorView(
                             text: Binding(
                                 get: {
-                                    // CRITICAL: Always get from the CURRENT node's file - ensure isolation
+                                    // Always get from the CURRENT node's file - ensure isolation
                                     guard let currentNode = projectManager.selectedNode,
                                           let currentIndex = projectManager.nodes.firstIndex(where: { $0.id == currentNode.id }),
                                           let fileId = currentNode.selectedFileId,
                                           let file = projectManager.nodes[currentIndex].files.first(where: { $0.id == fileId }) else {
-                                        return fileContent
+                                        return selectedFile.content
                                     }
                                     // Verify we're getting the right node's content
                                     if currentNode.id != projectManager.nodes[currentIndex].id {
@@ -158,61 +146,17 @@ struct CodeEditorView: View {
                                 }
                             ),
                             language: selectedFile.language,
-                            editorInstanceId: editorKey, // CRITICAL: Unique instance ID for isolation
-                            onWebViewReady: { webView in
-                                // Store webView per node+file combination
-                                webViewStore[editorKey] = webView
-                                print("✅ Stored webView for editor: \(editorKey) (Node: \(currentNode.name))")
-                            }
+                            editorInstanceId: editorKey
                         )
                         .id(editorKey) // Unique ID per node+file - forces new instance
                         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
-                        .onChange(of: projectManager.selectedNode?.id) { oldId in
-                            // IMMEDIATE SAVE before switching nodes
-                            if let oldId = oldId,
-                               let oldNodeIndex = projectManager.nodes.firstIndex(where: { $0.id == oldId }),
-                               let oldFileId = projectManager.nodes[oldNodeIndex].selectedFileId {
-                                let oldEditorKey = "\(oldId.uuidString)-\(oldFileId.uuidString)"
-                                
-                                if let webView = webViewStore[oldEditorKey] {
-                                    // Save immediately and synchronously
-                                    projectManager.saveCurrentNodeFromEditor(webView: webView) {
-                                        print("✅ Auto-saved node before switching")
-                                    }
-                                } else {
-                                    // Fallback: save from nodes array
-                                    projectManager.saveCurrentNodeFiles()
-                                }
-                            }
+                        .onChange(of: projectManager.selectedNode?.id) { _ in
+                            // Save before switching nodes
+                            projectManager.saveCurrentNodeFiles()
                         }
                         .onDisappear {
-                            // Save when editor disappears - get content from Monaco first
-                            if let webView = webViewStore[editorKey] {
-                                Task {
-                                    let script = """
-                                    if (window.monacoEditor) {
-                                        window.monacoEditor.getValue();
-                                    } else {
-                                        "";
-                                    }
-                                    """
-                                    
-                                    if let content = await withCheckedContinuation({ continuation in
-                                        webView.evaluateJavaScript(script) { result, error in
-                                            continuation.resume(returning: result as? String)
-                                        }
-                                    }),
-                                       let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == currentNode.id }),
-                                       let fileId = currentNode.selectedFileId,
-                                       let fileIndex = projectManager.nodes[nodeIndex].files.firstIndex(where: { $0.id == fileId }) {
-                                        projectManager.nodes[nodeIndex].files[fileIndex].content = content
-                                        if fileIndex == 0 {
-                                            projectManager.nodes[nodeIndex].code = content
-                                        }
-                                        projectManager.saveCurrentNodeFiles()
-                                    }
-                                }
-                            }
+                            // Save when editor disappears
+                            projectManager.saveCurrentNodeFiles()
                         }
                     } else {
                         VStack {
