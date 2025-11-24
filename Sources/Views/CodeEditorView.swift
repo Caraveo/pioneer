@@ -52,26 +52,23 @@ struct CodeEditorView: View {
                 
                 Divider()
                 
-                // Code editor
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        TextEditor(text: Binding(
-                            get: {
-                                projectManager.selectedNode?.code ?? ""
-                            },
-                            set: { newValue in
-                                if let node = projectManager.selectedNode,
-                                   let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
-                                    projectManager.nodes[index].code = newValue
-                                    projectManager.selectedNode = projectManager.nodes[index]
-                                }
+                // Code editor with Runestone
+                RunestoneEditorView(
+                    text: Binding(
+                        get: {
+                            projectManager.selectedNode?.code ?? ""
+                        },
+                        set: { newValue in
+                            if let node = projectManager.selectedNode,
+                               let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
+                                projectManager.nodes[index].code = newValue
+                                projectManager.selectedNode = projectManager.nodes[index]
                             }
-                        ))
-                        .font(.system(size: 12, design: .monospaced))
-                        .frame(minHeight: 400)
-                        .padding(8)
-                    }
-                }
+                        }
+                    ),
+                    language: node.language
+                )
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
                 .background(Color(NSColor.textBackgroundColor))
             } else {
                 VStack {
