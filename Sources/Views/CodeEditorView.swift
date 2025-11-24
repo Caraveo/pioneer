@@ -52,8 +52,8 @@ struct CodeEditorView: View {
                 
                 Divider()
                 
-                // Code editor with Runestone
-                RunestoneEditorView(
+                // Code editor with Monaco Editor (VSCode's editor)
+                MonacoEditorView(
                     text: Binding(
                         get: {
                             projectManager.selectedNode?.code ?? ""
@@ -69,16 +69,6 @@ struct CodeEditorView: View {
                     language: node.language
                 )
                 .frame(minWidth: 0, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
-                .background(Color(NSColor.textBackgroundColor))
-                .onTapGesture {
-                    // Force focus when tapping the editor area
-                    DispatchQueue.main.async {
-                        if let window = NSApplication.shared.keyWindow,
-                           let firstResponder = window.firstResponder as? CodeEditorTextView {
-                            window.makeFirstResponder(firstResponder)
-                        }
-                    }
-                }
             } else {
                 VStack {
                     Image(systemName: "doc.text")
