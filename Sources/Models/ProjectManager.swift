@@ -3,6 +3,7 @@ import SwiftUI
 import Combine
 import AppKit
 
+@MainActor
 class ProjectManager: ObservableObject {
     @Published var nodes: [Node] = []
     @Published var selectedNode: Node?
@@ -155,28 +156,33 @@ class ProjectManager: ObservableObject {
     
     private func initializeNodeProject(node: Node) async {
         do {
-            // Ensure node has a main file
-            if let index = nodes.firstIndex(where: { $0.id == node.id }) {
-                let mainFile = nodes[index].getOrCreateMainFile()
-                if nodes[index].selectedFileId == nil {
-                    nodes[index].selectedFileId = mainFile.id
-                }
-                
-                // Create project structure
-                try await nodeProjectService.createProjectStructure(for: nodes[index])
-                
-                // Get project path and update node
-                let projectPath = nodeProjectService.getProjectPath(for: nodes[index])
-                nodes[index].projectPath = projectPath.path
-                
-                // If it's a Python node, create its virtual environment
-                if nodes[index].language == .python {
-                    await pythonBridge.ensureVirtualEnvironment(for: nodes[index])
-                }
-                
-                // Update selected node if it's the one we're working with
-                if selectedNode?.id == node.id {
-                    selectedNode = nodes[index]
+            // Create project structure (can be done off main thread)
+            try await nodeProjectService.createProjectStructure(for: node)
+            
+            // Get project path
+            let projectPath = nodeProjectService.getProjectPath(for: node)
+            
+            // If it's a Python node, create its virtual environment
+            if node.language == .python {
+                await pythonBridge.ensureVirtualEnvironment(for: node)
+            }
+            
+            // CRITICAL: All @Published property mutations must happen on main thread
+            await MainActor.run {
+                // Ensure node has a main file
+                if let index = nodes.firstIndex(where: { $0.id == node.id }) {
+                    let mainFile = nodes[index].getOrCreateMainFile()
+                    if nodes[index].selectedFileId == nil {
+                        nodes[index].selectedFileId = mainFile.id
+                    }
+                    
+                    // Update project path
+                    nodes[index].projectPath = projectPath.path
+                    
+                    // Update selected node if it's the one we're working with
+                    if selectedNode?.id == node.id {
+                        selectedNode = nodes[index]
+                    }
                 }
             }
         } catch {
@@ -185,53 +191,54 @@ class ProjectManager: ObservableObject {
     }
     
     func updateNode(_ node: Node) {
-        if let index = nodes.firstIndex(where: { $0.id == node.id }) {
-            let oldLanguage = nodes[index].language
-            let oldProjectPath = nodes[index].projectPath
-            
-            nodes[index] = node
-            
-            // Ensure main file exists when language changes
-            if oldLanguage != node.language {
-                let mainFile = nodes[index].getOrCreateMainFile()
-                if nodes[index].selectedFileId == nil {
-                    nodes[index].selectedFileId = mainFile.id
+        // CRITICAL: This must run on main thread since it mutates @Published properties
+        guard let index = nodes.firstIndex(where: { $0.id == node.id }) else { return }
+        
+        let oldLanguage = nodes[index].language
+        let oldProjectPath = nodes[index].projectPath
+        
+        nodes[index] = node
+        
+        // Ensure main file exists when language changes
+        if oldLanguage != node.language {
+            let mainFile = nodes[index].getOrCreateMainFile()
+            if nodes[index].selectedFileId == nil {
+                nodes[index].selectedFileId = mainFile.id
+            }
+        }
+        
+        // Ensure project structure exists
+        if node.projectPath == nil || oldProjectPath != node.projectPath {
+            Task {
+                await initializeNodeProject(node: nodes[index])
+            }
+        } else {
+            // Save all files to project
+            Task {
+                do {
+                    try await nodeProjectService.saveAllFiles(node: nodes[index], projectPath: nodeProjectService.getProjectPath(for: nodes[index]))
+                } catch {
+                    print("Failed to save files: \(error)")
                 }
             }
-            
-            // Ensure project structure exists
-            if node.projectPath == nil || oldProjectPath != node.projectPath {
-                Task {
-                    await initializeNodeProject(node: nodes[index])
-                }
-            } else {
-                // Save all files to project
-                Task {
-                    do {
-                        try await nodeProjectService.saveAllFiles(node: nodes[index], projectPath: nodeProjectService.getProjectPath(for: nodes[index]))
-                    } catch {
-                        print("Failed to save files: \(error)")
-                    }
-                }
+        }
+        
+        // If language changed to Python, ensure virtual environment exists
+        if node.language == .python && oldLanguage != .python {
+            Task {
+                await pythonBridge.ensureVirtualEnvironment(for: nodes[index])
             }
-            
-            // If language changed to Python, ensure virtual environment exists
-            if node.language == .python && oldLanguage != .python {
-                Task {
-                    await pythonBridge.ensureVirtualEnvironment(for: nodes[index])
-                }
+        }
+        
+        // If requirements changed, update the environment
+        if node.language == .python && node.pythonRequirements != nodes[index].pythonRequirements {
+            Task {
+                await pythonBridge.updatePythonRequirements(for: nodes[index])
             }
-            
-            // If requirements changed, update the environment
-            if node.language == .python && node.pythonRequirements != nodes[index].pythonRequirements {
-                Task {
-                    await pythonBridge.updatePythonRequirements(for: nodes[index])
-                }
-            }
-            
-            if selectedNode?.id == node.id {
-                selectedNode = nodes[index]
-            }
+        }
+        
+        if selectedNode?.id == node.id {
+            selectedNode = nodes[index]
         }
     }
     
