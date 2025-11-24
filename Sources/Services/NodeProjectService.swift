@@ -183,8 +183,11 @@ class NodeProjectService {
         try FileManager.default.createDirectory(at: srcDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: distDir, withIntermediateDirectories: true)
         
-        // Create package.json
-        let packageJson: [String: Any] = [
+        // Get current Node.js version using Volta (or system default)
+        let nodeVersion = await getNodeVersion()
+        
+        // Create package.json with Volta configuration
+        var packageJson: [String: Any] = [
             "name": node.projectDirectoryName.lowercased(),
             "version": "1.0.0",
             "description": node.name,
@@ -198,8 +201,20 @@ class NodeProjectService {
             "license": "ISC"
         ]
         
+        // Add Volta configuration to package.json
+        if !nodeVersion.isEmpty {
+            packageJson["volta"] = [
+                "node": nodeVersion
+            ] as [String: Any]
+        }
+        
         let jsonData = try JSONSerialization.data(withJSONObject: packageJson, options: .prettyPrinted)
         try jsonData.write(to: projectPath.appendingPathComponent("package.json"))
+        
+        // Pin Node.js version using Volta if available
+        if await isVoltaInstalled() {
+            await pinNodeVersion(projectPath: projectPath, version: nodeVersion)
+        }
         
         // Create .gitignore
         let gitignore = """
@@ -210,6 +225,123 @@ class NodeProjectService {
         *.log
         """
         try gitignore.write(to: projectPath.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+    }
+    
+    /// Check if Volta is installed
+    private func isVoltaInstalled() async -> Bool {
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+                process.arguments = ["volta"]
+                
+                let pipe = Pipe()
+                process.standardOutput = pipe
+                process.standardError = Pipe()
+                
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    
+                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                    let output = String(data: data, encoding: .utf8) ?? ""
+                    continuation.resume(returning: !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } catch {
+                    continuation.resume(returning: false)
+                }
+            }
+        }
+    }
+    
+    /// Get current Node.js version (using Volta if available, otherwise system)
+    private func getNodeVersion() async -> String {
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                // First try to get version from Volta
+                let voltaProcess = Process()
+                voltaProcess.executableURL = URL(fileURLWithPath: "/bin/bash")
+                voltaProcess.arguments = ["-c", "volta list node 2>/dev/null | head -1 | awk '{print $2}' || echo ''"]
+                
+                let voltaPipe = Pipe()
+                voltaProcess.standardOutput = voltaPipe
+                voltaProcess.standardError = Pipe()
+                
+                do {
+                    try voltaProcess.run()
+                    voltaProcess.waitUntilExit()
+                    
+                    let data = voltaPipe.fileHandleForReading.readDataToEndOfFile()
+                    if let output = String(data: data, encoding: .utf8),
+                       !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        continuation.resume(returning: output.trimmingCharacters(in: .whitespacesAndNewlines))
+                        return
+                    }
+                } catch {
+                    // Volta not available, fall through to system node
+                }
+                
+                // Fallback to system Node.js version
+                let nodeProcess = Process()
+                nodeProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+                nodeProcess.arguments = ["node"]
+                
+                let nodePipe = Pipe()
+                nodeProcess.standardOutput = nodePipe
+                nodeProcess.standardError = Pipe()
+                
+                do {
+                    try nodeProcess.run()
+                    nodeProcess.waitUntilExit()
+                    
+                    if nodeProcess.terminationStatus == 0 {
+                        // Node is installed, get version
+                        let versionProcess = Process()
+                        versionProcess.executableURL = URL(fileURLWithPath: "/bin/bash")
+                        versionProcess.arguments = ["-c", "node --version | sed 's/v//'"]
+                        
+                        let versionPipe = Pipe()
+                        versionProcess.standardOutput = versionPipe
+                        versionProcess.standardError = Pipe()
+                        
+                        try versionProcess.run()
+                        versionProcess.waitUntilExit()
+                        
+                        let versionData = versionPipe.fileHandleForReading.readDataToEndOfFile()
+                        if let version = String(data: versionData, encoding: .utf8) {
+                            continuation.resume(returning: version.trimmingCharacters(in: .whitespacesAndNewlines))
+                            return
+                        }
+                    }
+                } catch {
+                    // Node not found
+                }
+                
+                // Default to latest LTS if nothing found
+                continuation.resume(returning: "20.11.0")
+            }
+        }
+    }
+    
+    /// Pin Node.js version using Volta
+    private func pinNodeVersion(projectPath: URL, version: String) async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/bash")
+                process.arguments = ["-c", "cd '\(projectPath.path)' && volta pin node@\(version)"]
+                process.standardOutput = Pipe()
+                process.standardError = Pipe()
+                
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                } catch {
+                    // Ignore errors - Volta pin might fail if version doesn't exist
+                }
+                
+                continuation.resume()
+            }
+        }
     }
     
     private func createWebProjectStructure(node: Node, projectPath: URL) async throws {
