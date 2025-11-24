@@ -7,7 +7,14 @@ struct RunestoneEditorView: NSViewRepresentable {
     let language: CodeLanguage
     
     func makeNSView(context: Context) -> CodeEditorTextView {
-        let textView = CodeEditorTextView()
+        let textContainer = NSTextContainer()
+        let layoutManager = NSLayoutManager()
+        layoutManager.addTextContainer(textContainer)
+        
+        let textStorage = NSTextStorage()
+        textStorage.addLayoutManager(layoutManager)
+        
+        let textView = CodeEditorTextView(frame: .zero, textContainer: textContainer)
         textView.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         textView.string = text
         textView.language = language
