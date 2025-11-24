@@ -5,6 +5,16 @@
 [![macOS](https://img.shields.io/badge/platform-macOS-blue.svg)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-5.9-orange.svg)](https://swift.org/)
 [![SwiftUI](https://img.shields.io/badge/SwiftUI-4.0-blue.svg)](https://developer.apple.com/xcode/swiftui/)
+[![Status](https://img.shields.io/badge/status-PREALPHA-red.svg)](https://github.com/Caraveo/pioneer)
+
+> ⚠️ **PREALPHA WARNING**: Pioneer is currently in **PREALPHA** stage and is **NOT ready for production use**. This software requires extensive setup and configuration. Many features are experimental, incomplete, or may not work as expected. Use at your own risk.
+
+> 📋 **Setup Requirements**: Pioneer requires significant manual configuration including:
+> - API keys for AI providers (OpenAI, Anthropic, Google Gemini)
+> - Local model setup (Ollama, MistyStudio) if using local models
+> - Python 3 installation for Python node support
+> - Manual configuration of AI settings
+> - Understanding of Swift/SwiftUI development for troubleshooting
 
 Pioneer is a revolutionary macOS-native application that reimagines software development through visual, node-based architecture. Built entirely with SwiftUI, Pioneer enables developers to visually design, generate, and deploy entire software systems—from mobile apps to cloud infrastructure—all in one unified interface.
 
