@@ -366,7 +366,7 @@ struct MonacoEditorView: NSViewRepresentable {
                 // Ensure theme matches current system/appearance setting
                 let isDark = NSApp.effectiveAppearance.name == .darkAqua || NSApp.effectiveAppearance.name == .vibrantDark
                 let theme = isDark ? "vs-dark" : "vs"
-                currentTheme = theme
+                self.currentTheme = theme
                 
                 // Force focus on Monaco editor and ensure it's editable
                 let focusScript = """
