@@ -1,10 +1,19 @@
 import SwiftUI
+import AppKit
 
 @main
 struct PioneerApp: App {
     @StateObject private var projectManager = ProjectManager()
     @AppStorage("appearance") private var appearance: AppearanceMode = .system
     @State private var showAISettings = false
+    
+    init() {
+        // Activate app immediately when launched (especially from terminal)
+        DispatchQueue.main.async {
+            NSApplication.shared.setActivationPolicy(.regular)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        }
+    }
     
     var body: some Scene {
         WindowGroup {
@@ -14,18 +23,18 @@ struct PioneerApp: App {
                 .sheet(isPresented: $showAISettings) {
                     AISettingsView(aiService: projectManager.aiService)
                 }
+                .background(WindowAccessor())
                 .onAppear {
                     // Ensure window is key when app appears
-                    DispatchQueue.main.async {
-                        NSApplication.shared.activate(ignoringOtherApps: true)
-                        if let window = NSApplication.shared.keyWindow {
-                            window.makeKeyAndOrderFront(nil)
-                        }
-                    }
+                    activateWindow()
                 }
         }
         .windowStyle(.automatic)
         .defaultSize(width: 1200, height: 800)
+        .onChange(of: projectManager.viewMode) { _ in
+            // Activate window when view mode changes
+            activateWindow()
+        }
         .commands {
             // Add command to force window focus
             CommandGroup(after: .windowArrangement) {
@@ -99,6 +108,49 @@ struct PioneerApp: App {
                     showAISettings = true
                 }
                 .keyboardShortcut(",", modifiers: [.command, .shift])
+            }
+        }
+    }
+    
+    private func activateWindow() {
+        DispatchQueue.main.async {
+            NSApplication.shared.setActivationPolicy(.regular)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            
+            // Get all windows and bring them to front
+            for window in NSApplication.shared.windows {
+                window.makeKeyAndOrderFront(nil)
+                window.orderFrontRegardless()
+            }
+            
+            // Also try to get the key window
+            if let keyWindow = NSApplication.shared.keyWindow {
+                keyWindow.makeKeyAndOrderFront(nil)
+                keyWindow.orderFrontRegardless()
+            }
+        }
+    }
+}
+
+// Helper view to access NSWindow
+struct WindowAccessor: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            if let window = view.window {
+                window.makeKeyAndOrderFront(nil)
+                window.orderFrontRegardless()
+                NSApplication.shared.activate(ignoringOtherApps: true)
+            }
+        }
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            if let window = nsView.window {
+                window.makeKeyAndOrderFront(nil)
+                NSApplication.shared.activate(ignoringOtherApps: true)
             }
         }
     }

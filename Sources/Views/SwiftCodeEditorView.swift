@@ -74,6 +74,13 @@ struct SwiftCodeEditorView: NSViewRepresentable {
         context.coordinator.language = language
         context.coordinator.instanceId = editorInstanceId
         
+        // Ensure text view can receive focus
+        DispatchQueue.main.async {
+            if let window = scrollView.window {
+                window.makeFirstResponder(textView)
+            }
+        }
+        
         return scrollView
     }
     
@@ -100,6 +107,13 @@ struct SwiftCodeEditorView: NSViewRepresentable {
             ? NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1.0)
             : NSColor.white
         context.coordinator.applySyntaxHighlighting(to: textView)
+        
+        // Ensure text view can receive keyboard input
+        if textView.window?.firstResponder != textView {
+            DispatchQueue.main.async {
+                textView.window?.makeFirstResponder(textView)
+            }
+        }
     }
     
     func makeCoordinator() -> Coordinator {
@@ -428,6 +442,42 @@ class CodeTextView: NSTextView {
         // Use tabs
         usesFontPanel = false
         usesRuler = false
+        
+        // Enable keyboard input
+        acceptsRichText = false
+        isFieldEditor = false
+        isEditable = true
+        isSelectable = true
+        allowsUndo = true
+    }
+    
+    override var acceptsFirstResponder: Bool {
+        return true
+    }
+    
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        if result {
+            // Ensure we can receive keyboard events
+            window?.makeFirstResponder(self)
+        }
+        return result
+    }
+    
+    override func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event)
+        // Become first responder when clicked
+        window?.makeFirstResponder(self)
+    }
+    
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Try to become first responder when added to window
+        DispatchQueue.main.async { [weak self] in
+            if let window = self?.window {
+                window.makeFirstResponder(self)
+            }
+        }
     }
     
     override func insertTab(_ sender: Any?) {
