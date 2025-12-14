@@ -55,11 +55,6 @@ struct AIPromptInput: View {
                 }
                 .buttonStyle(.plain)
                 
-                // AI Icon
-                Image(systemName: "sparkles")
-                    .foregroundColor(.blue)
-                    .font(.system(size: 18))
-                
                 // Input Field
                 TextField(placeholderText, text: $prompt, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -103,8 +98,9 @@ struct AIPromptInput: View {
                 .disabled(prompt.isEmpty || isProcessing)
                 .keyboardShortcut(.return, modifiers: [])
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 16)
         }
         .background(
             Rectangle()
