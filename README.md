@@ -1,5 +1,7 @@
 # Pioneer
 
+![Pioneer Icon](Pioneer.png)
+
 **A Visual, Node-Based AI Code Editor and Systems Architect Tool**
 
 [![macOS](https://img.shields.io/badge/platform-macOS-blue.svg)](https://www.apple.com/macos/)
@@ -118,6 +120,11 @@ Pioneer is designed to become the **ultimate visual development environment** wh
 - **Environment Isolation**: No conflicts between different Python projects
 
 ### Developer Experience
+
+![Code Editor](Editor.png)
+
+*Built-in code editor with syntax highlighting and multi-file support*
+
 - **Code Editor**: Built-in code editor with syntax highlighting
 - **Theme Support**: Light, Dark, and System appearance modes
 - **Keyboard Shortcuts**: Efficient navigation and actions
