@@ -61,23 +61,31 @@ struct NodeRowView: View {
     let node: Node
     @EnvironmentObject var projectManager: ProjectManager
     
+    // Get the current node from projectManager to ensure we always show the latest name
+    private var currentNode: Node? {
+        projectManager.nodes.first(where: { $0.id == node.id })
+    }
+    
     var body: some View {
-        HStack {
-            Image(systemName: node.type.icon)
-                .foregroundColor(node.type.color)
+        // Use currentNode if available, otherwise fallback to passed node
+        let displayNode = currentNode ?? node
+        
+        return HStack {
+            Image(systemName: displayNode.type.icon)
+                .foregroundColor(displayNode.type.color)
                 .frame(width: 20)
             
             VStack(alignment: .leading, spacing: 2) {
-                Text(node.name)
+                Text(displayNode.name)
                     .font(.system(size: 13, weight: .medium))
-                Text(node.type.rawValue)
+                Text(displayNode.type.rawValue)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
             
             Spacer()
             
-            if !node.connections.isEmpty {
+            if !displayNode.connections.isEmpty {
                 Image(systemName: "link")
                     .foregroundColor(.secondary)
                     .font(.system(size: 10))
@@ -86,7 +94,11 @@ struct NodeRowView: View {
         .padding(.vertical, 4)
         .contextMenu {
             Button("Delete") {
-                projectManager.deleteNode(node)
+                if let nodeToDelete = currentNode {
+                    projectManager.deleteNode(nodeToDelete)
+                } else {
+                    projectManager.deleteNode(node)
+                }
             }
         }
     }
