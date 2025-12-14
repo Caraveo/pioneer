@@ -5,7 +5,7 @@
 [![macOS](https://img.shields.io/badge/platform-macOS-blue.svg)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-5.9-orange.svg)](https://swift.org/)
 [![SwiftUI](https://img.shields.io/badge/SwiftUI-4.0-blue.svg)](https://developer.apple.com/xcode/swiftui/)
-[![Version](https://img.shields.io/badge/version-0.0.2-blue.svg)](https://github.com/Caraveo/pioneer/releases)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/Caraveo/pioneer/releases)
 [![Status](https://img.shields.io/badge/status-PREALPHA-red.svg)](https://github.com/Caraveo/pioneer)
 
 ## 🚀 What Pioneer Does
