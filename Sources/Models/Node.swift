@@ -346,7 +346,7 @@ enum CodeLanguage: String, Codable, CaseIterable {
     var icon: String {
         switch self {
         case .swift: return "swift"
-        case .python: return "python"
+        case .python: return "p.square"
         case .yaml: return "doc.text"
         case .json: return "curlybraces"
         case .scaffolding: return "square.stack.3d.up"
@@ -358,7 +358,7 @@ enum CodeLanguage: String, Codable, CaseIterable {
         case .javascript: return "j.square"
         case .html: return "h.square"
         case .css: return "c.square"
-        case .sql: return "database"
+        case .sql: return "tablecells"
         case .bash: return "terminal"
         case .markdown: return "doc.richtext"
         }

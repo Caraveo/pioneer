@@ -297,7 +297,7 @@ struct FileRowView: View {
     private func fileIcon(for language: CodeLanguage) -> String {
         switch language {
         case .swift: return "swift"
-        case .python: return "python"
+        case .python: return "p.square"
         case .javascript, .typescript: return "curlybraces"
         case .html: return "h.square"
         case .css: return "c.square"
@@ -305,7 +305,7 @@ struct FileRowView: View {
         case .yaml, .kubernetes, .cloudformation: return "doc.text"
         case .dockerfile: return "cube.box"
         case .terraform: return "mountain.2"
-        case .sql: return "database"
+        case .sql: return "tablecells"
         case .bash: return "terminal"
         case .markdown: return "doc.richtext"
         default: return "doc"

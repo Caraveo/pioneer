@@ -15,7 +15,7 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
     case django = "Django"
     case flask = "Flask"
     case fastapi = "FastAPI"
-    case purepy = "PurePy"
+    case purepy = "Python"
     
     // Rust
     case rust = "Rust"
