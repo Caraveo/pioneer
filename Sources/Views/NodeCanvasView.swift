@@ -189,8 +189,14 @@ struct NodeCanvasView: View {
     
     private func handleAIPrompt() {
         guard !aiPrompt.isEmpty else { return }
+        guard !projectManager.aiService.isProcessing else { return } // Prevent spam
+        
+        // Set loading state immediately to prevent spam clicks
+        projectManager.aiService.isProcessing = true
+        
         guard let selectedNode = projectManager.selectedNode else {
             // Show error - no node selected
+            projectManager.aiService.isProcessing = false // Reset on error
             withAnimation {
                 aiResponseMessage = "Please select a node first to generate code for it."
                 showAIResponse = true
@@ -210,15 +216,20 @@ struct NodeCanvasView: View {
                 print("Failed to create project structure: \(error)")
             }
             
-            if let generatedCode = await projectManager.aiService.generateCode(
+            let generatedCode = await projectManager.aiService.generateCode(
                 prompt: aiPrompt,
                 framework: selectedNode.framework,
                 nodeContext: selectedNode,
                 connectedNodes: connectedNodes,
-                allNodes: projectManager.nodes
-            ) {
+                allNodes: projectManager.nodes,
+                projectName: projectManager.projectName
+            )
+            
+            // In agent mode, generatedCode will be nil because the agent already modified files
+            // In standard mode, we need to update the code
+            if let code = generatedCode, !projectManager.aiService.useAgentMode {
                 // Extract only the code (remove markdown if present)
-                let codeOnly = extractCodeFromResponse(generatedCode)
+                let codeOnly = extractCodeFromResponse(code)
                 
                 // Update the selected node's code
                 if let index = projectManager.nodes.firstIndex(where: { $0.id == selectedNode.id }) {
@@ -256,6 +267,15 @@ struct NodeCanvasView: View {
                         aiPrompt = "" // Clear prompt
                     }
                 }
+            } else if projectManager.aiService.useAgentMode {
+                // Agent mode - files were already modified by the agent
+                await MainActor.run {
+                    withAnimation {
+                        aiResponseMessage = "Agent completed actions in \(selectedNode.name) project"
+                        showAIResponse = true
+                        aiPrompt = "" // Clear prompt
+                    }
+                }
             } else {
                 await MainActor.run {
                     withAnimation {
@@ -269,27 +289,89 @@ struct NodeCanvasView: View {
     
     
     private func extractCodeFromResponse(_ response: String) -> String {
-        // Remove markdown code blocks if present
-        var code = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Extract ONLY code from markdown code blocks, removing all explanations
+        let code = response.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        // Remove ```language blocks
-        if code.hasPrefix("```") {
-            let lines = code.components(separatedBy: .newlines)
-            var codeLines: [String] = []
-            var inCodeBlock = false
+        // First, try to find code blocks
+        var searchStart = code.startIndex
+        var foundCodeBlocks: [String] = []
+        
+        while let codeRange = code.range(of: "```", range: searchStart..<code.endIndex) {
+            let start = code.index(codeRange.upperBound, offsetBy: 0)
             
-            for line in lines {
-                if line.hasPrefix("```") {
-                    inCodeBlock = !inCodeBlock
-                    continue
-                }
-                if inCodeBlock || !code.hasPrefix("```") {
-                    codeLines.append(line)
-                }
+            // Skip language identifier if present (swift, python, etc.)
+            var codeStart = start
+            if let newlineRange = code[start...].range(of: "\n") {
+                codeStart = code.index(newlineRange.upperBound, offsetBy: 0)
             }
-            code = codeLines.joined(separator: "\n")
+            
+            // Find the closing ```
+            if let endRange = code[codeStart...].range(of: "```") {
+                let extractedCode = String(code[codeStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !extractedCode.isEmpty {
+                    foundCodeBlocks.append(extractedCode)
+                }
+                // Continue searching after this code block
+                searchStart = code.index(endRange.upperBound, offsetBy: 0)
+            } else {
+                break
+            }
         }
         
+        // If we found code blocks, return the first one (or combine if multiple)
+        if !foundCodeBlocks.isEmpty {
+            return foundCodeBlocks.joined(separator: "\n\n")
+        }
+        
+        // If no code blocks, check if the response is pure code (starts with code-like keywords)
+        let codeIndicators = ["import ", "struct ", "class ", "func ", "def ", "function ", "const ", "let ", "var ", "public ", "private ", "<?php", "<!DOCTYPE", "#include", "@", "package "]
+        if codeIndicators.contains(where: { code.hasPrefix($0) }) {
+            return code
+        }
+        
+        // Check for explanatory text patterns - if found, try to extract code after them
+        let explanatoryPatterns = ["here is", "you can", "this code", "example", "note:", "please note", "remember", "in swiftui", "you might", "here's", "this is"]
+        let lowerCode = code.lowercased()
+        
+        for pattern in explanatoryPatterns {
+            if let patternRange = lowerCode.range(of: pattern) {
+                // Try to find code after the explanation
+                let afterExplanation = String(code[patternRange.upperBound...])
+                // Look for code blocks in the remaining text
+                if let codeBlockStart = afterExplanation.range(of: "```") {
+                    let codeAfter = String(afterExplanation[codeBlockStart.upperBound...])
+                    if let codeBlockEnd = codeAfter.range(of: "```") {
+                        let extracted = String(codeAfter[..<codeBlockEnd.lowerBound])
+                        // Skip language identifier
+                        if let newlineRange = extracted.range(of: "\n") {
+                            return String(extracted[newlineRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                        return extracted.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                }
+            }
+        }
+        
+        // If we still have explanatory text, try to remove everything before the first code block
+        // Look for common patterns like "In SwiftUI," or "Here is an example:"
+        if let firstCodeBlock = code.range(of: "```") {
+            // Check if there's text before the code block
+            let beforeCode = String(code[..<firstCodeBlock.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if beforeCode.count > 50 { // Likely has explanation
+                // Extract just the code block
+                let afterStart = String(code[firstCodeBlock.upperBound...])
+                if let codeBlockEnd = afterStart.range(of: "```") {
+                    let extracted = String(afterStart[..<codeBlockEnd.lowerBound])
+                    // Skip language identifier
+                    if let newlineRange = extracted.range(of: "\n") {
+                        return String(extracted[newlineRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                    return extracted.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+        }
+        
+        // Fallback: return trimmed code (might be pure code without markdown)
         return code.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
