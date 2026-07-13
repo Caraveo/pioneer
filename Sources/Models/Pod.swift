@@ -1,16 +1,60 @@
 import Foundation
 import SwiftUI
 
+enum EnvScope: String, Codable, CaseIterable, Identifiable {
+    case publicKey = "Public"
+    case privateKey = "Private"
+    case developer = "Developer"
+    case production = "Production"
+    case shared = "Shared"
+    
+    var id: String { rawValue }
+    
+    var icon: String {
+        switch self {
+        case .publicKey: return "key"
+        case .privateKey: return "lock.fill"
+        case .developer: return "hammer"
+        case .production: return "server.rack"
+        case .shared: return "link"
+        }
+    }
+}
+
+/// Environment binding owned by an Inference (virtual) pod and distributed to the stack.
+struct EnvBinding: Identifiable, Codable, Hashable {
+    let id: UUID
+    var key: String
+    var value: String
+    var scope: EnvScope
+    var note: String
+    
+    init(id: UUID = UUID(), key: String, value: String = "", scope: EnvScope = .shared, note: String = "") {
+        self.id = id
+        self.key = key
+        self.value = value
+        self.scope = scope
+        self.note = note
+    }
+}
+
 enum PodType: String, Codable, CaseIterable, Identifiable {
     case macOSApp = "macOS App"
     case iOSApp = "iOS App"
     case androidApp = "Android App"
     case service = "Service"
     case database = "Database"
+    /// File / object storage hub (local vault, MinIO, S3, NFS, PVC).
+    case vault = "Vault"
     case awsBackend = "AWS Backend"
+    /// Virtual hub: env vars, secrets scopes, and stack inference — not a runtime app pod.
+    case inference = "Inference"
     case custom = "Custom"
     
     var id: String { rawValue }
+    
+    /// Virtual pods don't run as app containers; they coordinate the graph.
+    var isVirtual: Bool { self == .inference }
     
     /// Migrate legacy project files that stored "iPhone App".
     init(from decoder: Decoder) throws {
@@ -31,7 +75,9 @@ enum PodType: String, Codable, CaseIterable, Identifiable {
         case .androidApp: return "smartphone"
         case .service: return "globe"
         case .database: return "cylinder.split.1x2"
+        case .vault: return "externaldrive.fill.badge.timemachine"
         case .awsBackend: return "server.rack"
+        case .inference: return "brain.head.profile"
         case .custom: return "square.stack"
         }
     }
@@ -43,7 +89,9 @@ enum PodType: String, Codable, CaseIterable, Identifiable {
         case .androidApp: return .green
         case .service: return Color(red: 0.2, green: 0.7, blue: 0.5)
         case .database: return Color(red: 0.2, green: 0.45, blue: 0.75)
+        case .vault: return Color(red: 0.15, green: 0.55, blue: 0.65)
         case .awsBackend: return .orange
+        case .inference: return Color(red: 0.55, green: 0.35, blue: 0.95)
         case .custom: return .gray
         }
     }
@@ -61,8 +109,12 @@ enum PodType: String, Codable, CaseIterable, Identifiable {
             return "API / web service → Python (default), Node, Go, Java, frontends…"
         case .database:
             return "Data store → PostgreSQL, MySQL, MongoDB, Redis, SQLite"
+        case .vault:
+            return "File storage → Vault (default), MinIO, S3, Local Volume, NFS, SeaweedFS"
         case .awsBackend:
             return "Cloud backend → Node, Python, Java, Go, Docker, K8s, Terraform"
+        case .inference:
+            return "Virtual hub → env keys, public/private scopes, stack wiring"
         case .custom:
             return "Any enabled framework"
         }
@@ -76,7 +128,9 @@ enum PodType: String, Codable, CaseIterable, Identifiable {
         case .androidApp: return .kotlin
         case .service: return .purepy
         case .database: return .postgresql
+        case .vault: return .vault
         case .awsBackend: return .express
+        case .inference: return .environment
         case .custom: return .purepy
         }
     }
@@ -98,11 +152,15 @@ enum PodType: String, Codable, CaseIterable, Identifiable {
             ]
         case .database:
             return [.postgresql, .mysql, .mongodb, .redis, .sqlite]
+        case .vault:
+            return [.vault, .minio, .s3, .localVolume, .nfs, .seaweedfs]
         case .awsBackend:
             return [
                 .express, .nestjs, .nodejs, .fastapi, .flask, .django, .purepy,
                 .go, .java, .spring, .docker, .kubernetes, .terraform
             ]
+        case .inference:
+            return [.environment]
         case .custom:
             return Framework.allCases
         }
@@ -150,6 +208,10 @@ struct Pod: Identifiable, Codable {
     var selectedFileId: UUID? // Currently selected file
     /// Dedicated Kubernetes Pod manifest for this Pioneer pod (edited in YAML view).
     var kubernetesYAML: String
+    /// Env keys / secrets (especially for Inference virtual pods).
+    var environmentVariables: [EnvBinding]
+    /// Local runtime indicator (green = running/active, red = stopped). Not persisted.
+    var isRunning: Bool = false
     
     // Backward compatibility: language property (deprecated, use framework)
     var language: CodeLanguage {
@@ -157,13 +219,15 @@ struct Pod: Identifiable, Codable {
         set { /* Ignored - use framework instead */ }
     }
     
+    var isVirtual: Bool { type.isVirtual }
+    
     enum CodingKeys: String, CodingKey {
         case id, name, type, position, code, framework, connections
         case projectPath, pythonEnvironmentPath, pythonRequirements
-        case files, selectedFileId, kubernetesYAML
+        case files, selectedFileId, kubernetesYAML, environmentVariables
     }
     
-    init(id: UUID = UUID(), name: String, type: PodType, position: CGPoint = .zero, code: String = "", framework: Framework = .swift, connections: [UUID] = [], projectPath: String? = nil, pythonEnvironmentPath: String? = nil, pythonRequirements: String = "", files: [ProjectFile] = [], selectedFileId: UUID? = nil, kubernetesYAML: String = "") {
+    init(id: UUID = UUID(), name: String, type: PodType, position: CGPoint = .zero, code: String = "", framework: Framework = .swift, connections: [UUID] = [], projectPath: String? = nil, pythonEnvironmentPath: String? = nil, pythonRequirements: String = "", files: [ProjectFile] = [], selectedFileId: UUID? = nil, kubernetesYAML: String = "", environmentVariables: [EnvBinding] = []) {
         self.id = id
         self.name = name
         self.type = type
@@ -177,6 +241,8 @@ struct Pod: Identifiable, Codable {
         self.files = files
         self.selectedFileId = selectedFileId
         self.kubernetesYAML = kubernetesYAML
+        self.environmentVariables = environmentVariables
+        self.isRunning = false
         
         // Always ensure main file exists (even if files array is provided)
         // This guarantees every pod has at least one file
@@ -185,19 +251,21 @@ struct Pod: Identifiable, Codable {
             let mainFileContent: String
             if !code.isEmpty {
                 mainFileContent = code
+            } else if type == .inference {
+                mainFileContent = Self.makeEnvFileContent(name: name, bindings: environmentVariables)
             } else {
                 // Use framework template
                 mainFileContent = framework.getTemplate(name: name)
             }
             
-            let launchPath = framework.launchFile
+            let launchPath = type == .inference ? ".env" : framework.launchFile
             let launchFileName = (launchPath as NSString).lastPathComponent
             
             let mainFile = ProjectFile(
                 path: launchPath,
                 name: launchFileName,
                 content: mainFileContent,
-                language: framework.primaryLanguage
+                language: type == .inference ? .bash : framework.primaryLanguage
             )
             self.files = [mainFile]
             self.selectedFileId = mainFile.id
@@ -208,15 +276,78 @@ struct Pod: Identifiable, Codable {
             self.selectedFileId = files.first?.id
         }
         
-        // Each Pioneer pod owns a Kubernetes Pod YAML
+        // Each Pioneer pod owns a Kubernetes Pod YAML (Inference uses ConfigMap-style docs)
         if self.kubernetesYAML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            self.kubernetesYAML = KubernetesManifestService.generateYAML(
-                id: self.id,
-                name: self.name,
-                framework: self.framework,
-                projectPath: self.projectPath
-            )
+            if type == .inference {
+                self.kubernetesYAML = Self.makeInferenceConfigMapYAML(name: name, id: id, bindings: environmentVariables)
+            } else {
+                self.kubernetesYAML = KubernetesManifestService.generateYAML(
+                    id: self.id,
+                    name: self.name,
+                    framework: self.framework,
+                    projectPath: self.projectPath
+                )
+            }
         }
+    }
+    
+    static func makeEnvFileContent(name: String, bindings: [EnvBinding]) -> String {
+        var lines = [
+            "# \(name) — Inference environment",
+            "# Scopes: Public | Private | Developer | Production | Shared",
+            ""
+        ]
+        if bindings.isEmpty {
+            lines += [
+                "# Example keys (fill via Inference wizard)",
+                "API_BASE_URL=http://localhost:8000",
+                "DATABASE_URL=mysql://user:pass@db:3306/app",
+                "# PRIVATE",
+                "JWT_SECRET=change-me",
+                "API_PRIVATE_KEY=",
+                "# PUBLIC",
+                "API_PUBLIC_KEY=",
+                "# DEVELOPER",
+                "DEBUG=true",
+                "LOG_LEVEL=debug"
+            ]
+        } else {
+            var lastScope: EnvScope?
+            for b in bindings {
+                if b.scope != lastScope {
+                    lines.append("# \(b.scope.rawValue.uppercased())")
+                    lastScope = b.scope
+                }
+                let comment = b.note.isEmpty ? "" : "  # \(b.note)"
+                lines.append("\(b.key)=\(b.value)\(comment)")
+            }
+        }
+        lines.append("")
+        return lines.joined(separator: "\n")
+    }
+    
+    static func makeInferenceConfigMapYAML(name: String, id: UUID, bindings: [EnvBinding]) -> String {
+        let safe = name.lowercased().replacingOccurrences(of: " ", with: "-")
+        var dataLines: [String] = []
+        for b in bindings where b.scope != .privateKey {
+            // Private values stay out of ConfigMap docs by default
+            dataLines.append("  \(b.key): \"\(b.value.replacingOccurrences(of: "\"", with: "\\\""))\"")
+        }
+        if dataLines.isEmpty {
+            dataLines = ["  API_BASE_URL: \"http://localhost:8000\""]
+        }
+        return """
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: \(safe)-inference
+          labels:
+            app: pioneer
+            pioneer-pod: "\(id.uuidString)"
+            pioneer.io/virtual: "inference"
+        data:
+        \(dataLines.joined(separator: "\n"))
+        """
     }
     
     init(from decoder: Decoder) throws {
@@ -234,6 +365,8 @@ struct Pod: Identifiable, Codable {
         files = try c.decodeIfPresent([ProjectFile].self, forKey: .files) ?? []
         selectedFileId = try c.decodeIfPresent(UUID.self, forKey: .selectedFileId)
         kubernetesYAML = try c.decodeIfPresent(String.self, forKey: .kubernetesYAML) ?? ""
+        environmentVariables = try c.decodeIfPresent([EnvBinding].self, forKey: .environmentVariables) ?? []
+        isRunning = false
         
         if files.isEmpty {
             let mainFileContent = code.isEmpty ? framework.getTemplate(name: name) : code
@@ -277,6 +410,7 @@ struct Pod: Identifiable, Codable {
         try c.encode(files, forKey: .files)
         try c.encodeIfPresent(selectedFileId, forKey: .selectedFileId)
         try c.encode(kubernetesYAML, forKey: .kubernetesYAML)
+        try c.encode(environmentVariables, forKey: .environmentVariables)
     }
     
     /// Refresh Kubernetes YAML from current name/framework/path (overwrites YAML view content).
@@ -287,6 +421,55 @@ struct Pod: Identifiable, Codable {
             framework: framework,
             projectPath: projectPath
         )
+    }
+    
+    /// Copy for the “Wipe Pod?” confirmation before a framework switch.
+    func wipePodSummary(to newFramework: Framework) -> String {
+        let old = framework
+        return """
+        This will wipe all code and files in this pod and start fresh for \(newFramework.rawValue).
+        
+        From: \(old.rawValue) → \(newFramework.rawValue)
+        New launch file: \(newFramework.launchFile)
+        
+        What gets removed:
+        • All files currently in this pod’s codebase
+        • Current CODE editor contents
+        • Generated project files for the old stack (on disk, under this pod’s folder)
+        
+        What gets created:
+        • A clean \(newFramework.rawValue) starter at \(newFramework.launchFile)
+        • New Kubernetes YAML for this pod
+        • Fresh project scaffolding for \(newFramework.rawValue)
+        
+        Pod name, type, position, and connections are kept.
+        Git history in the pod folder is not deleted (you can still recover via GIT if committed).
+        """
+    }
+    
+    /// Hard switch: wipe all pod files and install a clean template for the new framework.
+    mutating func switchToFramework(_ newFramework: Framework) {
+        framework = newFramework
+        let template = newFramework.getTemplate(name: name)
+        let launchPath = newFramework.launchFile
+        let launchName = (launchPath as NSString).lastPathComponent
+        let language = newFramework.primaryLanguage
+        
+        // Brand-new file list so the CODE editor cannot keep stale tabs/content
+        let mainFile = ProjectFile(
+            id: UUID(),
+            path: launchPath,
+            name: launchName,
+            content: template,
+            language: language
+        )
+        files = [mainFile]
+        selectedFileId = mainFile.id
+        code = template
+        isRunning = false
+        pythonRequirements = ""
+        pythonEnvironmentPath = nil
+        regenerateKubernetesYAML()
     }
     
     /// Get the project directory name (sanitized)
@@ -316,24 +499,73 @@ struct Pod: Identifiable, Codable {
     
     /// Get or create the main file for this pod
     mutating func getOrCreateMainFile() -> ProjectFile {
-        // Check if main file already exists
         let mainPath = framework.launchFile
-        if let existingFile = files.first(where: { $0.path == mainPath }) {
-            return existingFile
+        let language = framework.primaryLanguage
+        let template = framework.getTemplate(name: name)
+        
+        if let existingIndex = files.firstIndex(where: { $0.path == mainPath }) {
+            // Repair wrong-language content left over from a prior framework
+            if Self.contentLooksIncompatible(files[existingIndex].content, with: framework) {
+                files[existingIndex].content = template
+                files[existingIndex].language = language
+                code = template
+            } else if files[existingIndex].language != language {
+                files[existingIndex].language = language
+            }
+            selectedFileId = files[existingIndex].id
+            return files[existingIndex]
         }
         
-        // Create new main file using framework template
+        // Prefer template over stale `code` when it doesn't match this framework
+        let body: String
+        if code.isEmpty || Self.contentLooksIncompatible(code, with: framework) {
+            body = template
+        } else {
+            body = code
+        }
+        
         let mainFile = ProjectFile(
             path: mainPath,
             name: getMainFileName(for: framework),
-            content: code.isEmpty ? framework.getTemplate(name: name) : code,
-            language: framework.primaryLanguage
+            content: body,
+            language: language
         )
         files.append(mainFile)
         selectedFileId = mainFile.id
-        code = mainFile.content // Sync code with main file
+        code = mainFile.content
         
         return mainFile
+    }
+    
+    /// Heuristic: true when file body clearly doesn't match the framework language.
+    static func contentLooksIncompatible(_ content: String, with framework: Framework) -> Bool {
+        let sample = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard sample.count > 8 else { return false }
+        let lower = sample.lowercased()
+        
+        let looksPython = sample.hasPrefix("#") && (lower.contains("def ") || lower.contains("import ") || lower.contains("pure python") || lower.contains("if __name__"))
+            || lower.contains("def main(") || lower.contains("if __name__")
+        let looksJS = lower.contains("console.log") || lower.contains("require(") || lower.contains("module.exports")
+            || sample.hasPrefix("//") && (lower.contains("function") || lower.contains("const ") || lower.contains("node.js"))
+        let looksSwift = lower.contains("import swiftui") || lower.contains("import foundation") || lower.contains("struct ") && lower.contains(": view")
+        let looksSQL = sample.hasPrefix("--") || lower.hasPrefix("create table")
+        
+        switch framework {
+        case .nodejs, .express, .nestjs, .angular, .react, .vue, .nextjs, .reactNative:
+            return looksPython || looksSwift || looksSQL
+        case .purepy, .django, .flask, .fastapi:
+            return (looksJS && !looksPython) || looksSwift
+        case .swift, .swiftui:
+            return looksPython || (looksJS && !looksSwift)
+        case .postgresql, .mysql, .sqlite:
+            return looksPython || looksJS || looksSwift
+        default:
+            // If code is pure Python comments/body but framework isn't Python, treat as incompatible
+            if looksPython && ![Framework.purepy, .django, .flask, .fastapi].contains(framework) {
+                return true
+            }
+            return false
+        }
     }
     
     /// Get default code template for a language (static helper)

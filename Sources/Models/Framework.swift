@@ -53,6 +53,23 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
     case redis = "Redis"
     case sqlite = "SQLite"
     
+    // File / object storage (Vault pod type)
+    /// Pioneer-native file vault — local durable volume + simple index/API contract.
+    case vault = "Vault"
+    /// S3-compatible object storage (MinIO).
+    case minio = "MinIO"
+    /// AWS S3 (or S3-compatible remote bucket config).
+    case s3 = "S3"
+    /// Kubernetes / host local volume (PVC or hostPath).
+    case localVolume = "Local Volume"
+    /// Network File System share.
+    case nfs = "NFS"
+    /// Distributed object/file store (SeaweedFS).
+    case seaweedfs = "SeaweedFS"
+    
+    /// Virtual Inference hub — `.env` + secret scopes (not a runtime language stack).
+    case environment = "Environment"
+    
     var id: String { rawValue }
     
     /// Settings UI grouping.
@@ -74,8 +91,12 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
             return "Java / JVM"
         case .postgresql, .mysql, .mongodb, .redis, .sqlite:
             return "Database"
+        case .vault, .minio, .s3, .localVolume, .nfs, .seaweedfs:
+            return "Vault / Storage"
         case .docker, .kubernetes, .terraform:
             return "Infrastructure"
+        case .environment:
+            return "Inference"
         }
     }
     
@@ -112,6 +133,13 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
         case .mongodb: return "leaf.circle"
         case .redis: return "bolt.horizontal.circle"
         case .sqlite: return "internaldrive"
+        case .vault: return "lock.rectangle.stack.fill"
+        case .minio: return "cylinder.split.1x2.fill"
+        case .s3: return "cloud.fill"
+        case .localVolume: return "internaldrive.fill"
+        case .nfs: return "network"
+        case .seaweedfs: return "leaf.arrow.triangle.circlepath"
+        case .environment: return "key.fill"
         }
     }
     
@@ -147,6 +175,13 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
         case .mongodb: return Color(red: 0.3, green: 0.7, blue: 0.35)
         case .redis: return Color(red: 0.85, green: 0.2, blue: 0.2)
         case .sqlite: return Color(red: 0.1, green: 0.55, blue: 0.85)
+        case .vault: return Color(red: 0.15, green: 0.55, blue: 0.65)
+        case .minio: return Color(red: 0.85, green: 0.35, blue: 0.15)
+        case .s3: return Color(red: 0.95, green: 0.55, blue: 0.15)
+        case .localVolume: return Color(red: 0.35, green: 0.55, blue: 0.65)
+        case .nfs: return Color(red: 0.25, green: 0.5, blue: 0.75)
+        case .seaweedfs: return Color(red: 0.2, green: 0.7, blue: 0.45)
+        case .environment: return Color(red: 0.55, green: 0.35, blue: 0.95)
         }
     }
     
@@ -156,7 +191,7 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
             return .javascript
         case .django, .flask, .fastapi, .purepy:
             return .python
-        case .rust, .go, .flutter:
+        case .rust, .go, .flutter, .environment, .vault, .minio, .s3, .localVolume, .nfs, .seaweedfs:
             return .bash
         case .swift, .swiftui:
             return .swift
@@ -188,9 +223,11 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
         case .rust, .swift, .swiftui, .objectiveC, .go, .java, .spring,
              .kotlin, .jetpackCompose, .androidJava:
             return false
-        case .docker, .kubernetes, .terraform:
+        case .docker, .kubernetes, .terraform, .environment:
             return false
         case .postgresql, .mysql, .mongodb, .redis, .sqlite:
+            return false
+        case .vault, .minio, .s3, .localVolume, .nfs, .seaweedfs:
             return false
         }
     }
@@ -257,6 +294,20 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
             return "scripts/init.redis"
         case .sqlite:
             return "sql/schema.sql"
+        case .vault:
+            return "vault/README.md"
+        case .minio:
+            return "config/minio.env"
+        case .s3:
+            return "config/s3.env"
+        case .localVolume:
+            return "k8s/pvc.yaml"
+        case .nfs:
+            return "config/nfs.env"
+        case .seaweedfs:
+            return "config/seaweedfs.env"
+        case .environment:
+            return ".env"
         }
     }
     
@@ -683,6 +734,104 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
             );
 
             INSERT INTO items (name) VALUES ('Hello, \(name)!');
+            """
+        case .vault:
+            return """
+            # \(name) — Pioneer Vault
+            #
+            # Durable file storage for the stack. Mount `./data` (or PVC) as the vault root.
+            # Other pods read/write objects under this volume via path or S3-compatible API.
+
+            ## Layout
+            ```
+            data/
+              buckets/
+                public/     # non-secret assets
+                private/    # access-controlled
+                uploads/    # client uploads
+              index.json    # optional object index
+            ```
+
+            ## Contract
+            - Root: `/vault` in containers (bind-mount from host `./data`)
+            - Paths are namespaced by bucket: `/vault/buckets/<bucket>/<key>`
+            - Prefer content-addressable keys for large blobs: `sha256/<hash>`
+
+            ## Quick start
+            ```bash
+            mkdir -p data/buckets/{public,private,uploads}
+            echo '{"version":1,"buckets":["public","private","uploads"]}' > data/index.json
+            ```
+
+            Wire this Vault pod to services that need uploads, media, or model artifacts.
+            """
+        case .minio:
+            return """
+            # \(name) — MinIO (S3-compatible)
+            MINIO_ROOT_USER=minioadmin
+            MINIO_ROOT_PASSWORD=minioadmin
+            MINIO_VOLUMES=/data
+            MINIO_ADDRESS=:9000
+            MINIO_CONSOLE_ADDRESS=:9001
+
+            # Client endpoint for other pods
+            S3_ENDPOINT=http://minio:9000
+            S3_BUCKET=app
+            S3_ACCESS_KEY=minioadmin
+            S3_SECRET_KEY=minioadmin
+            S3_REGION=us-east-1
+            S3_USE_SSL=false
+            """
+        case .s3:
+            return """
+            # \(name) — AWS S3 / S3-compatible remote
+            AWS_REGION=us-east-1
+            AWS_ACCESS_KEY_ID=
+            AWS_SECRET_ACCESS_KEY=
+            S3_BUCKET=\(name.lowercased().replacingOccurrences(of: " ", with: "-"))
+            S3_ENDPOINT=
+            # Leave S3_ENDPOINT empty for real AWS; set for R2/Wasabi/etc.
+            S3_PREFIX=app/
+            S3_USE_SSL=true
+            """
+        case .localVolume:
+            return """
+            # \(name) — Local Volume / PVC
+            # Apply with: kubectl apply -f k8s/pvc.yaml
+            #
+            # This file is a note; real PVC YAML is generated in the pod YAML view.
+            VAULT_MOUNT_PATH=/vault
+            VAULT_SIZE=10Gi
+            VAULT_STORAGE_CLASS=standard
+            VAULT_ACCESS_MODE=ReadWriteOnce
+            """
+        case .nfs:
+            return """
+            # \(name) — NFS share
+            NFS_SERVER=nfs.local
+            NFS_PATH=/exports/pioneer
+            NFS_MOUNT_OPTIONS=rw,nolock,soft
+            VAULT_MOUNT_PATH=/vault
+            """
+        case .seaweedfs:
+            return """
+            # \(name) — SeaweedFS
+            SEAWEED_MASTER=:9333
+            SEAWEED_VOLUME=:8080
+            SEAWEED_FILER=:8888
+            SEAWEED_S3=:8333
+            # Filer root for app files
+            SEAWEED_DIR=/buckets/app
+            """
+        case .environment:
+            return """
+            # \(name) — Inference environment
+            API_BASE_URL=http://localhost:8000
+            DATABASE_URL=mysql://user:pass@db:3306/app
+            JWT_SECRET=change-me
+            API_PUBLIC_KEY=
+            API_PRIVATE_KEY=
+            DEBUG=true
             """
         }
     }

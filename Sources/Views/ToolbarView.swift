@@ -3,8 +3,42 @@ import SwiftUI
 struct ToolbarView: View {
     @EnvironmentObject var projectManager: ProjectManager
     
+    private var runningCount: Int {
+        projectManager.pods.filter(\.isRunning).count
+    }
+    
     var body: some View {
         HStack(spacing: 12) {
+            // Play (toggle) + Rocket — icon only
+            // Panel toggles live only in the window toolbar (top) + View menu
+            HStack(spacing: 8) {
+                Button {
+                    if projectManager.isFleetRunning {
+                        projectManager.stopAllPods()
+                    } else {
+                        projectManager.playAllPods()
+                    }
+                } label: {
+                    Image(systemName: projectManager.isFleetRunning ? "stop.fill" : "play.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 28, height: 22)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(projectManager.isFleetRunning ? .red : .green)
+                .help(projectManager.isFleetRunning
+                      ? "Stop — halt fleet run"
+                      : "Play — run all pods (Inference → DB → API → clients)")
+                
+                if runningCount > 0 {
+                    Text("\(runningCount)")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .help("\(runningCount) pod(s) live")
+                }
+                
+                RocketMenuButton()
+            }
+            
             Spacer()
             
             // Tab Switcher (Center)

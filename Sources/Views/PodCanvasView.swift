@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct PodCanvasView: View {
     @EnvironmentObject var projectManager: ProjectManager
@@ -18,173 +19,221 @@ struct PodCanvasView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Grid background
-                Canvas { context, size in
-                    drawGrid(context: context, size: size)
+                // ── Background: click empty area to deselect, drag to pan ──
+                // Full-size hit target sits under pods so empty space receives gestures.
+                ZStack {
+                    Color(NSColor.textBackgroundColor)
+                    Canvas { context, size in
+                        drawGrid(context: context, size: size)
+                    }
+                }
+                .contentShape(Rectangle())
+                .gesture(canvasPanGesture)
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        handleCanvasTap()
+                    }
+                )
+                .onHover { hovering in
+                    if hovering && !isDragging {
+                        NSCursor.openHand.push()
+                    } else if !hovering {
+                        NSCursor.pop()
+                    }
                 }
                 
-                // Pods and connections
-                ZStack {
-                    // Draw active connection being created
-                    if let connectingFromId = projectManager.connectingFromPodId,
-                       let fromPod = projectManager.pods.first(where: { $0.id == connectingFromId }) {
-                        let fromPoint = getConnectionPoint(for: fromPod, isOutput: true)
-                        // Use mouse location or hovered connection point
-                        let toPoint = connectingToPoint ?? mouseLocation
-                        ConnectionView(
-                            from: fromPoint,
-                            to: toPoint,
-                            color: fromPod.framework.color,
-                            isTemporary: true
-                        )
+                // Empty canvas hint (doesn't block pan when transparent areas hit through)
+                if projectManager.pods.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "square.stack.3d.up.slash")
+                            .font(.system(size: 36, weight: .light))
+                            .foregroundStyle(.secondary)
+                        Text("No pods")
+                            .font(.headline)
+                        Text("Add a pod from the sidebar, or use INFER → Inference Wizard.\nDrag the canvas to pan.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 280)
+                        Button("New Pod") {
+                            projectManager.createNewPod()
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    
-                    // Draw connections first (behind pods)
-                    ForEach(projectManager.pods) { pod in
-                        ForEach(pod.connections, id: \.self) { targetId in
-                            if let targetPod = projectManager.pods.first(where: { $0.id == targetId }) {
-                                ConnectionView(
-                                    from: getConnectionPoint(for: pod, isOutput: true),
-                                    to: getConnectionPoint(for: targetPod, isOutput: false),
-                                    color: pod.framework.color
-                                )
-                            }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(true)
+                }
+                
+                // Links don't steal clicks from canvas / pods
+                ForEach(projectManager.pods) { pod in
+                    ForEach(pod.connections, id: \.self) { targetId in
+                        if let targetPod = projectManager.pods.first(where: { $0.id == targetId }) {
+                            ConnectionView(
+                                from: canvasPort(for: pod, isOutput: true),
+                                to: canvasPort(for: targetPod, isOutput: false),
+                                color: pod.framework.color,
+                                isTemporary: false
+                            )
+                            .allowsHitTesting(false)
                         }
                     }
-                    
-                    // Draw pods
-                    ForEach(projectManager.pods) { pod in
-                        PodView(
-                            pod: pod,
-                            hoveredConnectionPoint: projectManager.hoveredConnectionPoint
-                        )
-                            .position(
-                                x: pod.position.x + projectManager.canvasOffset.width,
-                                y: pod.position.y + projectManager.canvasOffset.height
-                            )
-                            .scaleEffect(projectManager.canvasScale)
-                            .gesture(
-                                DragGesture(minimumDistance: 0)
-                                    .onChanged { value in
-                                        if let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }) {
-                                            if !isDragging || draggedPodId != pod.id {
-                                                // Start of drag - store initial position
-                                                isDragging = true
-                                                draggedPodId = pod.id
-                                                initialDragPosition = pod.position
-                                            }
-                                            
-                                            // Calculate new position based on initial position and translation
-                                            // Divide by canvas scale to account for zoom level
-                                            let newX = initialDragPosition.x + (value.translation.width / projectManager.canvasScale)
-                                            let newY = initialDragPosition.y + (value.translation.height / projectManager.canvasScale)
-                                            
-                                            projectManager.pods[index].position = CGPoint(x: newX, y: newY)
-                                        }
-                                    }
-                                    .onEnded { _ in
-                                        if draggedPodId == pod.id {
-                                            isDragging = false
-                                            draggedPodId = nil
-                                            initialDragPosition = .zero
-                                        }
-                                    }
-                            )
-                            .onTapGesture {
-                                // IMMEDIATE SAVE before switching
-                                projectManager.saveCurrentPodFiles()
-                                
-                                // Small delay to ensure save completes
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                    projectManager.selectedPod = pod
+                }
+                
+                // Live wire while dragging from an output port
+                if let connectingFromId = projectManager.connectingFromPodId,
+                   let fromPod = projectManager.pods.first(where: { $0.id == connectingFromId }),
+                   let wireTo = connectingToPoint {
+                    ConnectionView(
+                        from: canvasPort(for: fromPod, isOutput: true),
+                        to: wireTo,
+                        color: fromPod.framework.color,
+                        isTemporary: true
+                    )
+                    .allowsHitTesting(false)
+                }
+                
+                // Pods — click to select, drag to move (on top of canvas)
+                ForEach(projectManager.pods) { pod in
+                    PodView(
+                        pod: pod,
+                        hoveredConnectionPoint: projectManager.hoveredConnectionPoint,
+                        isBeingDragged: draggedPodId == pod.id,
+                        onSelect: {
+                            selectPod(id: pod.id)
+                        },
+                        onConnectionDragChanged: { canvasLocation in
+                            projectManager.startConnection(from: pod.id)
+                            connectingToPoint = canvasLocation
+                            if let target = nearestInputPod(atCanvas: canvasLocation, excluding: pod.id) {
+                                projectManager.hoverConnectionPoint(podId: target.id, isOutput: false)
+                            } else {
+                                projectManager.hoverConnectionPoint(podId: nil, isOutput: false)
+                            }
+                        },
+                        onConnectionDragEnded: { canvasLocation in
+                            if let target = nearestInputPod(atCanvas: canvasLocation, excluding: pod.id) {
+                                projectManager.connectPods(from: pod.id, to: target.id)
+                            }
+                            projectManager.endConnection()
+                            projectManager.hoverConnectionPoint(podId: nil, isOutput: false)
+                            connectingToPoint = nil
+                        },
+                        onConnectionCancel: {
+                            projectManager.endConnection()
+                            projectManager.hoverConnectionPoint(podId: nil, isOutput: false)
+                            connectingToPoint = nil
+                        },
+                        onBodyDragChanged: { translation in
+                            guard projectManager.connectingFromPodId == nil else { return }
+                            if !isDragging || draggedPodId != pod.id {
+                                isDragging = true
+                                draggedPodId = pod.id
+                                if let current = projectManager.pods.first(where: { $0.id == pod.id }) {
+                                    initialDragPosition = current.position
+                                } else {
+                                    initialDragPosition = pod.position
                                 }
+                                selectPod(id: pod.id)
                             }
-                            .onHover { hovering in
-                                hoveredPodId = hovering ? pod.id : nil
+                            let scale = max(projectManager.canvasScale, 0.01)
+                            let newPos = CGPoint(
+                                x: initialDragPosition.x + translation.width / scale,
+                                y: initialDragPosition.y + translation.height / scale
+                            )
+                            projectManager.movePod(id: pod.id, to: newPos)
+                        },
+                        onBodyDragEnded: {
+                            if draggedPodId == pod.id {
+                                isDragging = false
+                                draggedPodId = nil
+                                initialDragPosition = .zero
                             }
+                        }
+                    )
+                    .frame(width: PodCanvasView.podCardWidth, height: PodCanvasView.podCardHeight)
+                    .position(
+                        x: pod.position.x + projectManager.canvasOffset.width,
+                        y: pod.position.y + projectManager.canvasOffset.height
+                    )
+                    .scaleEffect(projectManager.canvasScale)
+                    .zIndex(draggedPodId == pod.id ? 100 : (projectManager.selectedPod?.id == pod.id ? 10 : 1))
+                    .onHover { hovering in
+                        hoveredPodId = hovering ? pod.id : nil
                     }
                 }
             }
+            .coordinateSpace(name: "podCanvas")
             .gesture(
                 MagnificationGesture()
                     .onChanged { value in
                         projectManager.canvasScale = max(0.5, min(2.0, value))
                     }
             )
-            .gesture(
-                DragGesture(minimumDistance: 5)
-                    .modifiers(.command)
-                    .onChanged { value in
-                        // Only pan if not dragging a pod and not connecting
-                        if !isDragging && projectManager.connectingFromPodId == nil {
-                            if !isPanning {
-                                isPanning = true
-                                initialPanOffset = projectManager.canvasOffset
-                            }
-                            
-                            // Calculate new offset based on initial offset and translation
-                            projectManager.canvasOffset = CGSize(
-                                width: initialPanOffset.width + value.translation.width,
-                                height: initialPanOffset.height + value.translation.height
-                            )
+            // AI chrome sits on top but only the bar itself takes hits (not the full height)
+            .overlay(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    if showAIResponse {
+                        AIResponseBubble(message: aiResponseMessage) {
+                            withAnimation { showAIResponse = false }
                         }
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .padding(.bottom, 12)
+                        .padding(.horizontal, 16)
                     }
-                    .onEnded { _ in
-                        isPanning = false
-                        initialPanOffset = .zero
-                    }
-            )
-            .background(
-                // Track mouse location for connection preview
-                GeometryReader { geometry in
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .gesture(
-                            DragGesture(minimumDistance: 0)
-                                .onChanged { value in
-                                    if projectManager.connectingFromPodId != nil {
-                                        // Convert to canvas coordinates
-                                        mouseLocation = CGPoint(
-                                            x: value.location.x - projectManager.canvasOffset.width,
-                                            y: value.location.y - projectManager.canvasOffset.height
-                                        )
-                                    }
-                                }
-                        )
+                    AIPromptInput(
+                        prompt: $aiPrompt,
+                        aiService: projectManager.aiService,
+                        isProcessing: projectManager.aiService.isProcessing,
+                        onSubmit: { handleAIPrompt() }
+                    )
                 }
-            )
-            
-            // AI Prompt Input at the bottom
-            VStack(spacing: 0) {
-                Spacer()
-                
-                // AI Response Bubble
-                if showAIResponse {
-                    AIResponseBubble(message: aiResponseMessage) {
-                        withAnimation {
-                            showAIResponse = false
-                        }
-                    }
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .bottom).combined(with: .opacity),
-                        removal: .move(edge: .bottom).combined(with: .opacity)
-                    ))
-                    .padding(.bottom, 12)
-                    .padding(.horizontal, 16)
-                }
-                
-                // AI Prompt Input
-                AIPromptInput(
-                    prompt: $aiPrompt,
-                    aiService: projectManager.aiService,
-                    isProcessing: projectManager.aiService.isProcessing,
-                    onSubmit: {
-                        handleAIPrompt()
-                    }
-                )
             }
         }
         .background(Color(NSColor.textBackgroundColor))
+    }
+    
+    /// Drag empty canvas (or ⌘-drag anywhere) to pan the view.
+    private var canvasPanGesture: some Gesture {
+        DragGesture(minimumDistance: 3)
+            .onChanged { value in
+                // Don't pan while moving a pod or drawing a connection
+                guard !isDragging, projectManager.connectingFromPodId == nil else { return }
+                if !isPanning {
+                    isPanning = true
+                    initialPanOffset = projectManager.canvasOffset
+                    NSCursor.closedHand.push()
+                }
+                projectManager.canvasOffset = CGSize(
+                    width: initialPanOffset.width + value.translation.width,
+                    height: initialPanOffset.height + value.translation.height
+                )
+            }
+            .onEnded { _ in
+                if isPanning {
+                    NSCursor.pop()
+                }
+                isPanning = false
+                initialPanOffset = .zero
+            }
+    }
+    
+    private func handleCanvasTap() {
+        // Cancel in-progress connection, or clear selection
+        if projectManager.connectingFromPodId != nil {
+            projectManager.endConnection()
+            projectManager.hoverConnectionPoint(podId: nil, isOutput: false)
+            connectingToPoint = nil
+            return
+        }
+        projectManager.saveCurrentPodFiles()
+        projectManager.selectedPod = nil
+    }
+    
+    private func selectPod(id: UUID) {
+        projectManager.saveCurrentPodFiles()
+        if let live = projectManager.pods.first(where: { $0.id == id }) {
+            projectManager.selectedPod = live
+        }
     }
     
     private func handleAIPrompt() {
@@ -453,23 +502,68 @@ struct PodCanvasView: View {
         )
     }
     
-    private func getConnectionPoint(for pod: Pod, isOutput: Bool) -> CGPoint {
-        let podWidth: CGFloat = 200
-        let connectionY = pod.position.y + 140 // Bottom of pod
-        let x = isOutput ? pod.position.x + podWidth - 20 : pod.position.x + 20
-        return CGPoint(x: x, y: connectionY)
+    /// Pod card size used for port geometry (`pod.position` is the card center).
+    static let podCardWidth: CGFloat = 200
+    static let podCardHeight: CGFloat = 150
+    
+    /// Port position in view/canvas space (accounts for pan + zoom around pod center).
+    private func canvasPort(for pod: Pod, isOutput: Bool) -> CGPoint {
+        let halfW = Self.podCardWidth / 2
+        let halfH = Self.podCardHeight / 2
+        let relX = isOutput ? (halfW - 18) : -(halfW - 18)
+        let relY = halfH - 16
+        let scale = projectManager.canvasScale
+        return CGPoint(
+            x: pod.position.x + projectManager.canvasOffset.width + relX * scale,
+            y: pod.position.y + projectManager.canvasOffset.height + relY * scale
+        )
+    }
+    
+    private func nearestInputPod(atCanvas point: CGPoint, excluding sourceId: UUID, threshold: CGFloat = 56) -> Pod? {
+        var best: Pod?
+        var bestDist = threshold
+        for pod in projectManager.pods where pod.id != sourceId {
+            let input = canvasPort(for: pod, isOutput: false)
+            let dx = input.x - point.x
+            let dy = input.y - point.y
+            let d = sqrt(dx * dx + dy * dy)
+            if d < bestDist {
+                bestDist = d
+                best = pod
+            }
+        }
+        return best
     }
 }
 
 struct PodView: View {
     let pod: Pod
     let hoveredConnectionPoint: (podId: UUID, isOutput: Bool)?
+    var isBeingDragged: Bool = false
+    var onSelect: () -> Void
+    var onConnectionDragChanged: (CGPoint) -> Void
+    var onConnectionDragEnded: (CGPoint) -> Void
+    var onConnectionCancel: () -> Void
+    var onBodyDragChanged: (CGSize) -> Void
+    var onBodyDragEnded: () -> Void
+    
     @EnvironmentObject var projectManager: ProjectManager
     @State private var isRenaming = false
     @State private var renameText = ""
+    @State private var showEnvEditor = false
+    /// Tracks whether the current pointer interaction has already selected this pod.
+    @State private var didSelectThisGesture = false
+    /// True once movement exceeds the drag threshold (vs a plain click).
+    @State private var isActivelyMoving = false
+    
+    private let moveThreshold: CGFloat = 4
     
     var isSelected: Bool {
         projectManager.selectedPod?.id == pod.id
+    }
+    
+    private var isInference: Bool {
+        pod.type == .inference || pod.isVirtual
     }
     
     var hasInputConnections: Bool {
@@ -482,7 +576,7 @@ struct PodView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Header
+            // Header — type icon + name + status (no grab handle / selection checkmark)
             HStack {
                 Image(systemName: pod.type.icon)
                     .foregroundColor(pod.framework.color)
@@ -500,18 +594,60 @@ struct PodView: View {
                 } else {
                     Text(pod.name)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(isSelected ? .primary : .primary)
+                        .foregroundColor(.primary)
                         .onTapGesture(count: 2) {
-                            startRenaming()
+                            if isInference {
+                                openEnvEditor()
+                            } else {
+                                startRenaming()
+                            }
                         }
+                        .help(isInference ? "Double-click to edit environment" : "Double-click to rename")
                 }
                 
                 Spacer()
                 
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(pod.framework.color)
-                        .font(.system(size: 14))
+                // Runtime status: green = running, red = stopped (click to toggle)
+                Button {
+                    projectManager.togglePodRunning(id: pod.id)
+                } label: {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(pod.isRunning ? Color.green : Color.red)
+                            .frame(width: 10, height: 10)
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.primary.opacity(0.15), lineWidth: 1)
+                            )
+                            .shadow(color: (pod.isRunning ? Color.green : Color.red).opacity(0.45), radius: pod.isRunning ? 3 : 0)
+                        Text(pod.isRunning ? "ON" : "OFF")
+                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .foregroundStyle(pod.isRunning ? Color.green : Color.red.opacity(0.9))
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule()
+                            .fill((pod.isRunning ? Color.green : Color.red).opacity(0.12))
+                    )
+                }
+                .buttonStyle(.plain)
+                .help(pod.isRunning
+                      ? "Running — click to stop (red)"
+                      : "Stopped — click to start (green)")
+                
+                if isInference {
+                    Button {
+                        openEnvEditor()
+                    } label: {
+                        Image(systemName: "key.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.55, green: 0.35, blue: 0.95))
+                            .padding(4)
+                            .background(Circle().fill(Color.purple.opacity(0.15)))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Edit environment keys")
                 }
             }
             .padding(.horizontal, 12)
@@ -522,16 +658,43 @@ struct PodView: View {
             // Content preview
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Image(systemName: pod.framework.icon)
+                    Image(systemName: pod.isVirtual ? "key.fill" : pod.framework.icon)
                         .font(.system(size: 10))
                         .foregroundColor(pod.framework.color)
-                    Text(pod.framework.rawValue)
+                    Text(pod.isVirtual ? "VIRTUAL · ENV" : pod.framework.rawValue)
                         .font(.system(size: 10))
                         .foregroundColor(pod.framework.color)
+                    if pod.isVirtual {
+                        Text("\(pod.environmentVariables.count) keys")
+                            .font(.system(size: 9, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(.horizontal, 12)
                 
-                if let mainFile = pod.selectedFile, !mainFile.content.isEmpty {
+                if pod.isVirtual {
+                    Text(pod.environmentVariables.prefix(3).map(\.key).joined(separator: ", ")
+                          + (pod.environmentVariables.count > 3 ? "…" : ""))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 12)
+                        .lineLimit(2)
+                    
+                    if isSelected {
+                        Button {
+                            openEnvEditor()
+                        } label: {
+                            Label("Edit Environment…", systemImage: "slider.horizontal.3")
+                                .font(.system(size: 10, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 2)
+                        .help("Open the env editor for this Inference hub")
+                    }
+                } else if let mainFile = pod.selectedFile, !mainFile.content.isEmpty {
                     Text(mainFile.content.prefix(50) + (mainFile.content.count > 50 ? "..." : ""))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(.secondary)
@@ -547,53 +710,134 @@ struct PodView: View {
             }
             .padding(.bottom, 8)
             
-            // Connection points
+            // Relationship ports: left = input, right = output
             HStack {
-                // Input connection point (left side)
                 ConnectionPointView(
                     pod: pod,
                     isOutput: false,
                     isConnected: hasInputConnections,
                     isHovered: hoveredConnectionPoint?.podId == pod.id && hoveredConnectionPoint?.isOutput == false,
-                    color: pod.framework.color
+                    color: pod.framework.color,
+                    onDragChanged: nil,
+                    onDragEnded: nil,
+                    onTapInput: {
+                        if let from = projectManager.connectingFromPodId, from != pod.id {
+                            projectManager.connectPods(from: from, to: pod.id)
+                            onConnectionCancel()
+                        }
+                    }
                 )
                 
                 Spacer()
                 
-                // Output connection point (right side)
                 ConnectionPointView(
                     pod: pod,
                     isOutput: true,
                     isConnected: hasOutputConnections,
                     isHovered: hoveredConnectionPoint?.podId == pod.id && hoveredConnectionPoint?.isOutput == true,
-                    color: pod.framework.color
+                    color: pod.framework.color,
+                    onDragChanged: { canvas in
+                        onConnectionDragChanged(canvas)
+                    },
+                    onDragEnded: { canvas in
+                        onConnectionDragEnded(canvas)
+                    },
+                    onTapInput: nil
                 )
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
         }
-        .frame(width: 200)
+        .frame(width: PodCanvasView.podCardWidth, height: PodCanvasView.podCardHeight, alignment: .top)
+        .contentShape(RoundedRectangle(cornerRadius: 12))
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color(NSColor.controlBackgroundColor))
+                .fill(pod.isVirtual
+                      ? Color(red: 0.55, green: 0.35, blue: 0.95).opacity(0.08)
+                      : Color(NSColor.controlBackgroundColor))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(
-                            isSelected ? pod.language.color : Color.clear,
-                            lineWidth: isSelected ? 3 : 0
+                            isBeingDragged
+                                ? Color.accentColor
+                                : (pod.isVirtual
+                                   ? Color(red: 0.55, green: 0.35, blue: 0.95).opacity(isSelected ? 1 : 0.55)
+                                   : (isSelected ? pod.language.color : Color.clear)),
+                            style: StrokeStyle(
+                                lineWidth: isBeingDragged ? 2.5 : (pod.isVirtual ? (isSelected ? 2.5 : 1.5) : (isSelected ? 3 : 0)),
+                                dash: pod.isVirtual && !isBeingDragged ? [6, 4] : []
+                            )
                         )
                 )
                 .shadow(
-                    color: isSelected ? pod.language.color.opacity(0.4) : .black.opacity(0.1),
-                    radius: isSelected ? 8 : 5,
-                    y: 2
+                    color: isBeingDragged
+                        ? Color.accentColor.opacity(0.35)
+                        : (isSelected
+                           ? (pod.isVirtual ? Color.purple.opacity(0.35) : pod.language.color.opacity(0.4))
+                           : .black.opacity(0.1)),
+                    radius: isBeingDragged ? 12 : (isSelected ? 8 : 5),
+                    y: isBeingDragged ? 6 : 2
                 )
         )
+        .opacity(isBeingDragged ? 0.95 : 1)
+        // minDistance 0 so a plain click selects; movement past threshold moves the pod.
+        // Connection ports keep highPriorityGesture so linking still wins on the ports.
+        .gesture(podPointerGesture)
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                guard projectManager.connectingFromPodId == nil else { return }
+                if isInference {
+                    openEnvEditor()
+                } else if !isRenaming {
+                    startRenaming()
+                }
+            }
+        )
+        .sheet(isPresented: $showEnvEditor) {
+            InferenceEnvEditorView(podId: pod.id)
+                .environmentObject(projectManager)
+        }
         .onChange(of: isRenaming) { newValue in
             if !newValue && !renameText.isEmpty && renameText != pod.name {
                 finishRenaming()
             }
         }
+    }
+    
+    /// Click = select; drag past threshold = move. Works even when TapGesture alone
+    /// would lose to DragGesture (common macOS SwiftUI conflict).
+    private var podPointerGesture: some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("podCanvas"))
+            .onChanged { value in
+                guard projectManager.connectingFromPodId == nil else { return }
+                
+                if !didSelectThisGesture {
+                    didSelectThisGesture = true
+                    onSelect()
+                }
+                
+                let dist = hypot(value.translation.width, value.translation.height)
+                if dist >= moveThreshold {
+                    isActivelyMoving = true
+                    onBodyDragChanged(value.translation)
+                }
+            }
+            .onEnded { value in
+                let dist = hypot(value.translation.width, value.translation.height)
+                if isActivelyMoving || dist >= moveThreshold {
+                    onBodyDragEnded()
+                }
+                didSelectThisGesture = false
+                isActivelyMoving = false
+            }
+    }
+    
+    private func openEnvEditor() {
+        projectManager.saveCurrentPodFiles()
+        if let live = projectManager.pods.first(where: { $0.id == pod.id }) {
+            projectManager.selectedPod = live
+        }
+        showEnvEditor = true
     }
     
     private func startRenaming() {
@@ -654,131 +898,132 @@ struct ConnectionPointView: View {
     let isConnected: Bool
     let isHovered: Bool
     let color: Color
-    @EnvironmentObject var projectManager: ProjectManager
-    @State private var isDragging: Bool = false
+    var onDragChanged: ((CGPoint) -> Void)?
+    var onDragEnded: ((CGPoint) -> Void)?
+    var onTapInput: (() -> Void)?
     
-    var isConnecting: Bool {
-        projectManager.connectingFromPodId != nil
-    }
+    @EnvironmentObject var projectManager: ProjectManager
+    @State private var isDragging = false
     
     var body: some View {
-        Circle()
-            .fill(isConnected ? color : Color.clear)
-            .frame(width: 12, height: 12)
-            .overlay(
-                Circle()
-                    .stroke(isConnected ? color : color.opacity(0.5), lineWidth: isHovered ? 3 : 2)
-            )
-            .scaleEffect(isHovered ? 1.3 : 1.0)
-            .animation(.spring(response: 0.2), value: isHovered)
-            .gesture(
-                DragGesture(minimumDistance: 5)
-                    .onChanged { value in
-                        if !isDragging && isOutput {
-                            isDragging = true
-                            projectManager.startConnection(from: pod.id)
+        ZStack {
+            // Generous hit target
+            Circle()
+                .fill(Color.primary.opacity(0.001))
+                .frame(width: 28, height: 28)
+            
+            Circle()
+                .fill(isConnected || isHovered || isDragging ? color : Color(NSColor.controlBackgroundColor))
+                .frame(width: 14, height: 14)
+                .overlay(
+                    Circle()
+                        .stroke(color, lineWidth: isHovered || isDragging ? 3 : 2)
+                )
+                .shadow(color: (isHovered || isDragging) ? color.opacity(0.45) : .clear, radius: 4)
+                .scaleEffect(isHovered || isDragging ? 1.25 : 1.0)
+                .animation(.spring(response: 0.2), value: isHovered || isDragging)
+        }
+        .contentShape(Rectangle())
+        .help(isOutput
+              ? "Drag from this port to another pod’s left port to link them"
+              : "Drop a link here from another pod’s right port")
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 3, coordinateSpace: .named("podCanvas"))
+                .onChanged { value in
+                    guard isOutput else { return }
+                    isDragging = true
+                    // value.location is already in podCanvas space (matches .position)
+                    onDragChanged?(value.location)
+                }
+                .onEnded { value in
+                    guard isOutput else { return }
+                    isDragging = false
+                    onDragEnded?(value.location)
+                }
+        )
+        .onTapGesture {
+            if !isOutput {
+                onTapInput?()
+            } else if projectManager.connectingFromPodId == pod.id {
+                projectManager.endConnection()
+            }
+        }
+        .contextMenu {
+            if isConnected {
+                Button("Disconnect relationships", role: .destructive) {
+                    if isOutput {
+                        if let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }) {
+                            projectManager.pods[index].connections.removeAll()
                         }
-                    }
-                    .onEnded { value in
-                        isDragging = false
-                        // Connection will be completed on tap of input point
-                        // Or cancel if not connected
-                        if projectManager.connectingFromPodId == pod.id {
-                            // Check if we're over an input point
-                            // This would be handled by the canvas detecting the drop
-                        }
-                    }
-            )
-            .onTapGesture {
-                if !isOutput && isConnecting {
-                    // Complete connection to this input
-                    if let connectingFrom = projectManager.connectingFromPodId, connectingFrom != pod.id {
-                        projectManager.connectPods(from: connectingFrom, to: pod.id)
-                        projectManager.endConnection()
                     } else {
-                        // Cancel connection if clicking same pod
-                        projectManager.endConnection()
-                    }
-                } else if isOutput && !isConnecting {
-                    // Start new connection from output
-                    projectManager.startConnection(from: pod.id)
-                } else if isOutput && isConnecting && projectManager.connectingFromPodId == pod.id {
-                    // Cancel connection if clicking output again
-                    projectManager.endConnection()
-                }
-            }
-            .contextMenu {
-                if isConnected {
-                    Button("Disconnect") {
-                        if isOutput {
-                            // Remove all connections from this pod
-                            if let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }) {
-                                projectManager.pods[index].connections.removeAll()
-                            }
-                        } else {
-                            // Remove connections to this pod
-                            for i in projectManager.pods.indices {
-                                projectManager.pods[i].connections.removeAll { $0 == pod.id }
-                            }
+                        for i in projectManager.pods.indices {
+                            projectManager.pods[i].connections.removeAll { $0 == pod.id }
                         }
                     }
                 }
             }
-            .onHover { hovering in
-                if hovering {
-                    projectManager.hoverConnectionPoint(podId: pod.id, isOutput: isOutput)
-                } else if projectManager.hoveredConnectionPoint?.podId == pod.id {
-                    projectManager.hoverConnectionPoint(podId: nil, isOutput: false)
-                }
+        }
+        .onHover { hovering in
+            if hovering {
+                projectManager.hoverConnectionPoint(podId: pod.id, isOutput: isOutput)
+            } else if projectManager.hoveredConnectionPoint?.podId == pod.id {
+                projectManager.hoverConnectionPoint(podId: nil, isOutput: false)
             }
+        }
     }
 }
 
 struct ConnectionView: View {
+    /// Points already in view/canvas space (with pan applied).
     let from: CGPoint
     let to: CGPoint
     let color: Color
     var isTemporary: Bool = false
     
-    @EnvironmentObject var projectManager: ProjectManager
-    
     var body: some View {
-        Path { path in
-            let adjustedFrom = CGPoint(
-                x: from.x + projectManager.canvasOffset.width,
-                y: from.y + projectManager.canvasOffset.height
-            )
-            let adjustedTo = CGPoint(
-                x: to.x + projectManager.canvasOffset.width,
-                y: to.y + projectManager.canvasOffset.height
-            )
+        ZStack {
+            // Soft glow under the stroke
+            path
+                .stroke(
+                    color.opacity(isTemporary ? 0.15 : 0.2),
+                    style: StrokeStyle(lineWidth: 6, lineCap: .round)
+                )
             
-            path.move(to: adjustedFrom)
+            path
+                .stroke(
+                    isTemporary ? color.opacity(0.55) : color.opacity(0.85),
+                    style: StrokeStyle(
+                        lineWidth: isTemporary ? 2 : 2.5,
+                        lineCap: .round,
+                        dash: isTemporary ? [6, 5] : []
+                    )
+                )
             
-            // Bezier curve for connection
-            let controlPoint1 = CGPoint(
-                x: adjustedFrom.x + (adjustedTo.x - adjustedFrom.x) * 0.5,
-                y: adjustedFrom.y
-            )
-            let controlPoint2 = CGPoint(
-                x: adjustedTo.x - (adjustedTo.x - adjustedFrom.x) * 0.5,
-                y: adjustedTo.y
-            )
-            
-            path.addCurve(
-                to: adjustedTo,
-                control1: controlPoint1,
-                control2: controlPoint2
-            )
+            // Arrow tip at the input end
+            if !isTemporary {
+                arrowHead
+            }
         }
-        .stroke(
-            isTemporary ? color.opacity(0.4) : color.opacity(0.6),
-            style: StrokeStyle(
-                lineWidth: isTemporary ? 2 : 2,
-                lineCap: .round,
-                dash: isTemporary ? [5, 5] : []
-            )
-        )
+        .allowsHitTesting(false)
+    }
+    
+    private var path: Path {
+        Path { p in
+            p.move(to: from)
+            let dx = to.x - from.x
+            let control1 = CGPoint(x: from.x + max(40, dx * 0.45), y: from.y)
+            let control2 = CGPoint(x: to.x - max(40, dx * 0.45), y: to.y)
+            p.addCurve(to: to, control1: control1, control2: control2)
+        }
+    }
+    
+    private var arrowHead: some View {
+        let angle = atan2(to.y - from.y, to.x - from.x)
+        return Image(systemName: "arrowtriangle.right.fill")
+            .font(.system(size: 8))
+            .foregroundStyle(color.opacity(0.9))
+            .rotationEffect(.radians(Double(angle)))
+            .position(to)
     }
 }
 

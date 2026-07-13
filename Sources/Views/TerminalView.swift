@@ -183,93 +183,27 @@ struct TerminalView: View {
     }
     
     private func runProject() {
-        guard let pod = projectManager.selectedPod, !isRunning else {
-            if isRunning {
-                // Stop running process (would need to track process)
-                isRunning = false
+        if isRunning {
+            isRunning = false
+            if let id = projectManager.selectedPod?.id {
+                projectManager.setPodRunning(id: id, false)
             }
             return
         }
         
-        // Save current files + YAML before running
-        projectManager.saveCurrentPodFiles()
+        guard let pod = projectManager.selectedPod else { return }
         
+        projectManager.saveCurrentPodFiles()
         isRunning = true
-        appendOutput("\n🚀 Running Kubernetes pod: \(pod.name) (\(pod.framework.rawValue))\n")
+        appendOutput("\n🚀 Running pod: \(pod.name) (\(pod.framework.rawValue))\n")
         
         Task {
-            let output = await executeProject(pod: pod)
+            let output = await projectManager.runSinglePod(id: pod.id)
             await MainActor.run {
                 appendOutput(output)
                 isRunning = false
             }
         }
-    }
-    
-    private func executeProject(pod: Pod) async -> String {
-        // Resolve project path — CODE lives here and is injected into the K8s pod at /app
-        let workingDirectory: URL
-        if let projectPath = pod.projectPath {
-            workingDirectory = URL(fileURLWithPath: projectPath)
-        } else {
-            workingDirectory = projectManager.podProjectService.getProjectPath(for: pod, projectName: projectManager.projectName)
-        }
-        
-        try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-        
-        // Always pull latest in-memory pod (editor may have unsaved state on selectedPod)
-        var latest = pod
-        await MainActor.run {
-            if let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }) {
-                // Merge selectedPod file edits into array first
-                if let selected = projectManager.selectedPod, selected.id == pod.id {
-                    projectManager.pods[index] = selected
-                }
-                latest = projectManager.pods[index]
-            }
-        }
-        
-        // Ensure main/launch file exists in the pod model
-        if latest.files.first(where: { $0.path == latest.framework.launchFile }) == nil {
-            var mutable = latest
-            let main = mutable.getOrCreateMainFile()
-            _ = main
-            latest = mutable
-            await MainActor.run {
-                if let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }) {
-                    projectManager.pods[index] = latest
-                    projectManager.selectedPod = latest
-                }
-            }
-        }
-        
-        // Persist all CODE files to disk before run
-        do {
-            try await projectManager.podProjectService.saveAllFiles(pod: latest, projectPath: workingDirectory)
-        } catch {
-            return "❌ Failed to save project files: \(error.localizedDescription)\n"
-        }
-        
-        var yaml = latest.kubernetesYAML
-        if yaml.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            yaml = KubernetesManifestService.generateYAML(for: latest, projectPath: workingDirectory.path)
-        }
-        
-        await MainActor.run {
-            if let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }) {
-                projectManager.pods[index].kubernetesYAML = yaml
-                projectManager.pods[index].projectPath = workingDirectory.path
-                projectManager.selectedPod = projectManager.pods[index]
-                latest = projectManager.pods[index]
-            }
-        }
-        
-        // Sync + inject files into Kubernetes (or Docker bind-mount)
-        return await KubernetesManifestService.run(
-            pod: latest,
-            yaml: yaml,
-            projectPath: workingDirectory
-        )
     }
     
     private func runPythonProject(pod: Pod, workingDirectory: URL, mainFile: ProjectFile) async -> String {

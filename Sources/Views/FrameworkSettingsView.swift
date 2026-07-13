@@ -11,6 +11,7 @@ struct FrameworkSettingsView: View {
         ("JavaScript / TypeScript", [.nodejs, .angular, .react, .vue, .nextjs, .express, .nestjs]),
         ("Python", [.django, .flask, .fastapi, .purepy]),
         ("Database", [.postgresql, .mysql, .mongodb, .redis, .sqlite]),
+        ("Vault / Storage", [.vault, .minio, .s3, .localVolume, .nfs, .seaweedfs]),
         ("Systems", [.rust, .go]),
         ("Java / JVM", [.java, .spring]),
         ("Infrastructure", [.docker, .kubernetes, .terraform])

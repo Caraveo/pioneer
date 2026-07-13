@@ -20,10 +20,6 @@ enum KubernetesManifestService {
         let envLines = environmentYAML(for: framework)
         
         var lines: [String] = []
-        lines.append("# Pioneer Kubernetes Pod")
-        lines.append("# Each Pioneer pod is its own K8s Pod.")
-        lines.append("# NOTE: Pioneer Run injects CODE via kubectl cp (kind cannot use Mac hostPath).")
-        lines.append("# hostPath below is documentary; runtime uses emptyDir + file injection.")
         lines.append("apiVersion: v1")
         lines.append("kind: Pod")
         lines.append("metadata:")
@@ -49,6 +45,15 @@ enum KubernetesManifestService {
         lines.append("      volumeMounts:")
         lines.append("        - name: code")
         lines.append("          mountPath: \(workDir)")
+        // File-storage frameworks also mount durable vault data
+        if isVaultStorage(framework) {
+            lines.append("        - name: vault-data")
+            lines.append("          mountPath: /vault")
+        }
+        if framework == .minio {
+            lines.append("        - name: vault-data")
+            lines.append("          mountPath: /data")
+        }
         if !envLines.isEmpty {
             lines.append(contentsOf: envLines)
         }
@@ -64,8 +69,23 @@ enum KubernetesManifestService {
         lines.append("      hostPath:")
         lines.append("        path: \(hostPath)")
         lines.append("        type: DirectoryOrCreate")
+        if isVaultStorage(framework) || framework == .minio {
+            lines.append("    - name: vault-data")
+            lines.append("      hostPath:")
+            lines.append("        path: \(hostPath)/data")
+            lines.append("        type: DirectoryOrCreate")
+        }
         lines.append("")
         return lines.joined(separator: "\n")
+    }
+    
+    private static func isVaultStorage(_ framework: Framework) -> Bool {
+        switch framework {
+        case .vault, .localVolume, .nfs, .seaweedfs, .s3:
+            return true
+        default:
+            return false
+        }
     }
     
     static func generateYAML(for pod: Pod, projectPath: String? = nil) -> String {
@@ -88,6 +108,14 @@ enum KubernetesManifestService {
         let file = dir.appendingPathComponent("pod.yaml")
         try yaml.write(to: file, atomically: true, encoding: .utf8)
         return file
+    }
+    
+    /// Best-effort stop of a named Kubernetes pod (used when status toggles red).
+    static func stopPod(named name: String) async -> String {
+        guard await isCommandAvailable("kubectl") else {
+            return "kubectl not available\n"
+        }
+        return await shell("kubectl delete pod \(shellQuote(name)) --ignore-not-found=true --wait=false 2>&1")
     }
     
     /// Sync pod CODE to disk, write YAML, then run with correct file context.
@@ -147,25 +175,37 @@ enum KubernetesManifestService {
         }
         
         var files = pod.files
-        // Ensure launch file is present in the in-memory file set
         let launchRel = pod.framework.launchFile
-        if !files.contains(where: { $0.path == launchRel }) {
-            let content = pod.code.isEmpty ? pod.framework.getTemplate(name: pod.name) : pod.code
+        let template = pod.framework.getTemplate(name: pod.name)
+        
+        // Ensure launch file exists with content that matches the framework language
+        if let idx = files.firstIndex(where: { $0.path == launchRel }) {
+            let body = files[idx].content
+            if body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || Pod.contentLooksIncompatible(body, with: pod.framework) {
+                files[idx].content = template
+                files[idx].language = pod.framework.primaryLanguage
+                log += "🔧 Repaired launch file language for \(pod.framework.rawValue): \(launchRel)\n"
+            }
+        } else {
+            let content: String
+            if pod.code.isEmpty || Pod.contentLooksIncompatible(pod.code, with: pod.framework) {
+                content = template
+            } else {
+                content = pod.code
+            }
             files.append(ProjectFile(
                 path: launchRel,
                 name: (launchRel as NSString).lastPathComponent,
                 content: content,
                 language: pod.framework.primaryLanguage
             ))
-            log += "📝 Created missing launch file entry: \(launchRel)\n"
+            log += "📝 Created launch file: \(launchRel)\n"
         }
         
-        // If main file content is empty but pod.code is set, prefer pod.code
-        if let idx = files.firstIndex(where: { $0.path == launchRel }),
-           files[idx].content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           !pod.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            files[idx].content = pod.code
-        }
+        // Prefer the active launch file in the container, but keep other files on disk.
+        // At run time only inject what we sync; still include non-launch project files.
+        // (Previous frameworks' launch files remain in the project for recovery.)
         
         var written: [String] = []
         for file in files {
@@ -246,6 +286,21 @@ enum KubernetesManifestService {
             return "redis:7-alpine"
         case .sqlite:
             return "keinos/sqlite3:latest"
+        case .vault:
+            return "busybox:1.36"
+        case .minio:
+            return "minio/minio:latest"
+        case .s3:
+            // Config-only sidecar; real S3 is remote. Busybox holds env + tooling.
+            return "amazon/aws-cli:2.15.30"
+        case .localVolume:
+            return "busybox:1.36"
+        case .nfs:
+            return "busybox:1.36"
+        case .seaweedfs:
+            return "chrislusf/seaweedfs:latest"
+        case .environment:
+            return "busybox:1.36"
         }
     }
     
@@ -298,6 +353,20 @@ enum KubernetesManifestService {
             return ("redis-server", [])
         case .sqlite:
             return ("sh", ["-c", "sqlite3 /data/app.db < \(launch) && sqlite3 /data/app.db '.tables'"])
+        case .vault:
+            return ("sh", ["-c", "mkdir -p /vault/buckets/{public,private,uploads} && echo 'Vault ready at /vault' && ls -la /vault && sleep infinity"])
+        case .minio:
+            return ("minio", ["server", "/data", "--console-address", ":9001"])
+        case .s3:
+            return ("sh", ["-c", "echo 'S3 vault (remote) — check config/s3.env' && cat config/s3.env 2>/dev/null || true && sleep infinity"])
+        case .localVolume:
+            return ("sh", ["-c", "mkdir -p /vault && echo 'Local volume at /vault' && df -h /vault && sleep infinity"])
+        case .nfs:
+            return ("sh", ["-c", "echo 'NFS vault — mount configured via NFS_* env' && sleep infinity"])
+        case .seaweedfs:
+            return ("weed", ["server", "-dir=/data", "-s3"])
+        case .environment:
+            return ("sh", ["-c", "echo 'Inference hub — env only' && cat .env 2>/dev/null || true"])
         }
     }
     
@@ -501,6 +570,25 @@ enum KubernetesManifestService {
                 "      env:",
                 "        - name: NODE_ENV",
                 "          value: \"development\""
+            ]
+        case .minio:
+            return [
+                "      env:",
+                "        - name: MINIO_ROOT_USER",
+                "          value: \"minioadmin\"",
+                "        - name: MINIO_ROOT_PASSWORD",
+                "          value: \"minioadmin\"",
+                "      ports:",
+                "        - containerPort: 9000",
+                "          name: s3",
+                "        - containerPort: 9001",
+                "          name: console"
+            ]
+        case .vault, .localVolume:
+            return [
+                "      env:",
+                "        - name: VAULT_MOUNT_PATH",
+                "          value: \"/vault\""
             ]
         default:
             return []

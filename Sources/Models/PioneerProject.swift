@@ -8,7 +8,7 @@ struct PioneerProject: Codable {
     var created: Date
     var modified: Date
     
-    /// Keep JSON key `nodes` so existing .code project archives still load.
+    /// Keep JSON key `nodes` so existing .core / legacy .code project archives still load.
     enum CodingKeys: String, CodingKey {
         case pods = "nodes"
         case canvasOffset

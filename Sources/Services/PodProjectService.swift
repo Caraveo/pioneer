@@ -44,7 +44,8 @@ class PodProjectService {
             try await createBasicProjectStructure(pod: pod, projectPath: projectPath)
         case .docker, .kubernetes, .terraform:
             try await createBasicProjectStructure(pod: pod, projectPath: projectPath)
-        case .postgresql, .mysql, .mongodb, .redis, .sqlite:
+        case .postgresql, .mysql, .mongodb, .redis, .sqlite, .environment,
+             .vault, .minio, .s3, .localVolume, .nfs, .seaweedfs:
             try await createBasicProjectStructure(pod: pod, projectPath: projectPath)
         }
         

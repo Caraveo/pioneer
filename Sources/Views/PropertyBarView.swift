@@ -4,45 +4,287 @@ struct PropertyBarView: View {
     @EnvironmentObject var projectManager: ProjectManager
     @StateObject private var frameworkManager = FrameworkManager()
     
+    @State private var pendingFramework: Framework?
+    @State private var showFrameworkConfirm = false
+    @State private var frameworkConfirmMessage = ""
+    
+    @State private var pendingPodType: PodType?
+    @State private var showTypeConfirm = false
+    @State private var typeConfirmMessage = ""
+    @State private var typeChangeWillWipe = false
+    @State private var showDeleteConfirm = false
+    @State private var pendingDeleteId: UUID?
+    @State private var pendingDeleteName = ""
+    @State private var pendingDeleteIsLast = false
+    
+    /// Selected id only if it still exists in `pods` — never drive UI off a dangling selection.
+    private var safeSelectedId: UUID? {
+        guard let id = projectManager.selectedPod?.id,
+              projectManager.pods.contains(where: { $0.id == id }) else {
+            return nil
+        }
+        return id
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Properties")
-                    .font(.headline)
-                    .padding(.horizontal)
-                    .padding(.top, 12)
-                
-                if let selectedPod = projectManager.selectedPod {
-                    Text(selectedPod.name)
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                        .padding(.horizontal)
-                        .padding(.bottom, 8)
-                } else {
-                    Text("No Pod Selected")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal)
-                        .padding(.bottom, 8)
-                }
-            }
-            .background(Color(NSColor.controlBackgroundColor))
-            
+            header
             Divider()
             
-            // Properties
-            if let selectedPod = projectManager.selectedPod,
-               let podIndex = projectManager.pods.firstIndex(where: { $0.id == selectedPod.id }) {
+            if let podId = safeSelectedId {
+                // Keyed by pod id so SwiftUI discards the whole editor tree on delete
+                PodPropertiesEditor(
+                    podId: podId,
+                    frameworkManager: frameworkManager,
+                    onRequestFrameworkChange: { fw in
+                        requestFrameworkChange(fw, podId: podId)
+                    },
+                    onRequestTypeChange: { type in
+                        requestPodTypeChange(type, podId: podId)
+                    },
+                    onRequestDelete: {
+                        requestDelete(podId: podId)
+                    }
+                )
+                .id(podId)
+                .environmentObject(projectManager)
+            } else {
+                emptyState
+            }
+        }
+        .alert("Wipe Pod?", isPresented: $showFrameworkConfirm) {
+            Button("Cancel", role: .cancel) { pendingFramework = nil }
+            Button("Wipe Pod", role: .destructive) { confirmFrameworkSwitch() }
+        } message: {
+            Text(frameworkConfirmMessage)
+        }
+        .alert(typeChangeWillWipe ? "Wipe Pod?" : "Change pod type?", isPresented: $showTypeConfirm) {
+            Button("Cancel", role: .cancel) {
+                pendingPodType = nil
+                typeChangeWillWipe = false
+            }
+            Button(typeChangeWillWipe ? "Wipe Pod" : "Change Type", role: typeChangeWillWipe ? .destructive : nil) {
+                confirmPodTypeChange()
+            }
+        } message: {
+            Text(typeConfirmMessage)
+        }
+        .alert(
+            pendingDeleteIsLast ? "Delete last pod?" : "Delete pod?",
+            isPresented: $showDeleteConfirm
+        ) {
+            Button("Cancel", role: .cancel) {
+                pendingDeleteId = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let id = pendingDeleteId {
+                    projectManager.deletePod(id: id)
+                }
+                pendingDeleteId = nil
+            }
+        } message: {
+            if pendingDeleteIsLast {
+                Text("“\(pendingDeleteName)” is the only pod. Deleting it leaves an empty project. You can add a new pod anytime.")
+            } else {
+                Text("Delete “\(pendingDeleteName)”? It will be removed from the canvas and its relationships.")
+            }
+        }
+    }
+    
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Properties")
+                .font(.headline)
+                .padding(.horizontal)
+                .padding(.top, 12)
+            
+            if let podId = safeSelectedId,
+               let name = projectManager.pods.first(where: { $0.id == podId })?.name {
+                Text(name)
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+            } else {
+                Text("No Pod Selected")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+            }
+        }
+        .background(Color(NSColor.controlBackgroundColor))
+    }
+    
+    private var emptyState: some View {
+        VStack {
+            Spacer()
+            Text(projectManager.pods.isEmpty
+                 ? "No pods — add one from the sidebar"
+                 : "Select a pod to view its properties")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding()
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.textBackgroundColor))
+    }
+    
+    // MARK: - Framework confirm
+    
+    private func requestFrameworkChange(_ newFramework: Framework, podId: UUID) {
+        guard let pod = projectManager.pods.first(where: { $0.id == podId }) else { return }
+        guard newFramework != pod.framework else { return }
+        pendingFramework = newFramework
+        frameworkConfirmMessage = pod.wipePodSummary(to: newFramework)
+        showFrameworkConfirm = true
+    }
+    
+    private func confirmFrameworkSwitch() {
+        guard let newFramework = pendingFramework,
+              let podId = projectManager.selectedPod?.id else {
+            pendingFramework = nil
+            return
+        }
+        projectManager.wipePodToFramework(id: podId, newFramework: newFramework)
+        pendingFramework = nil
+    }
+    
+    // MARK: - Type confirm
+    
+    private func requestPodTypeChange(_ newType: PodType, podId: UUID) {
+        guard let pod = projectManager.pods.first(where: { $0.id == podId }) else { return }
+        guard newType != pod.type else { return }
+        
+        let resolved = newType.resolvedFramework(current: pod.framework)
+        pendingPodType = newType
+        typeChangeWillWipe = resolved != pod.framework
+        
+        if typeChangeWillWipe {
+            typeConfirmMessage = """
+            Changing type to \(newType.rawValue) will also change the framework and wipe this pod’s work.
+            
+            \(pod.wipePodSummary(to: resolved))
+            """
+        } else {
+            typeConfirmMessage = """
+            Change type from \(pod.type.rawValue) to \(newType.rawValue)?
+            
+            Framework stays \(pod.framework.rawValue). Files are not wiped.
+            """
+        }
+        showTypeConfirm = true
+    }
+    
+    private func confirmPodTypeChange() {
+        guard let newType = pendingPodType,
+              let podId = projectManager.selectedPod?.id,
+              let index = projectManager.pods.firstIndex(where: { $0.id == podId }) else {
+            pendingPodType = nil
+            typeChangeWillWipe = false
+            return
+        }
+        let previous = projectManager.pods[index].framework
+        let resolved = newType.resolvedFramework(current: previous)
+        
+        if resolved != previous {
+            var p = projectManager.pods[index]
+            p.type = newType
+            projectManager.pods[index] = p
+            projectManager.selectedPod = p
+            projectManager.wipePodToFramework(id: podId, newFramework: resolved)
+        } else {
+            var p = projectManager.pods[index]
+            p.type = newType
+            projectManager.pods[index] = p
+            projectManager.selectedPod = p
+        }
+        pendingPodType = nil
+        typeChangeWillWipe = false
+    }
+    
+    private func requestDelete(podId: UUID) {
+        guard let pod = projectManager.pods.first(where: { $0.id == podId }) else { return }
+        pendingDeleteId = podId
+        pendingDeleteName = pod.name
+        pendingDeleteIsLast = projectManager.pods.count <= 1
+        showDeleteConfirm = true
+    }
+}
+
+// MARK: - Editor content (bound by pod id — never uses stale indices)
+
+struct PodPropertiesEditor: View {
+    let podId: UUID
+    @ObservedObject var frameworkManager: FrameworkManager
+    var onRequestFrameworkChange: (Framework) -> Void
+    var onRequestTypeChange: (PodType) -> Void
+    var onRequestDelete: () -> Void
+    
+    @EnvironmentObject var projectManager: ProjectManager
+    @State private var showEnvEditor = false
+    
+    /// Safe live snapshot; nil if pod was deleted mid-update.
+    private var live: Pod? {
+        projectManager.pods.first(where: { $0.id == podId })
+    }
+    
+    var body: some View {
+        Group {
+            if let pod = live {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        // Pod Type → constrains Framework options
+                        if pod.type == .inference || pod.isVirtual {
+                            PropertySection(title: "Environment") {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("\(pod.environmentVariables.count) key\(pod.environmentVariables.count == 1 ? "" : "s") on this Inference hub")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    
+                                    if !pod.environmentVariables.isEmpty {
+                                        ForEach(pod.environmentVariables.prefix(6)) { binding in
+                                            HStack(spacing: 6) {
+                                                Image(systemName: binding.scope.icon)
+                                                    .font(.system(size: 9))
+                                                    .foregroundStyle(.secondary)
+                                                Text(binding.key)
+                                                    .font(.system(size: 11, design: .monospaced))
+                                                    .lineLimit(1)
+                                                Spacer()
+                                                Text(binding.scope.rawValue)
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                        }
+                                        if pod.environmentVariables.count > 6 {
+                                            Text("+\(pod.environmentVariables.count - 6) more…")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    
+                                    Button {
+                                        showEnvEditor = true
+                                    } label: {
+                                        Label("Edit Environment…", systemImage: "key.fill")
+                                            .font(.caption)
+                                            .frame(maxWidth: .infinity)
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(Color(red: 0.55, green: 0.35, blue: 0.95))
+                                    .help("Open the env editor popup (same as double-click on the Inference node)")
+                                }
+                            }
+                            
+                            Divider()
+                        }
+                        
                         PropertySection(title: "Pod Type") {
                             Picker("Type", selection: Binding(
-                                get: { projectManager.pods[podIndex].type },
-                                set: { newType in
-                                    applyPodType(newType, podIndex: podIndex)
-                                }
+                                get: { live?.type ?? .custom },
+                                set: { onRequestTypeChange($0) }
                             )) {
                                 ForEach(PodType.allCases) { type in
                                     HStack {
@@ -54,7 +296,7 @@ struct PropertyBarView: View {
                             }
                             .pickerStyle(.menu)
                             
-                            Text(projectManager.pods[podIndex].type.frameworkHint)
+                            Text(pod.type.frameworkHint)
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -62,21 +304,14 @@ struct PropertyBarView: View {
                         
                         Divider()
                         
-                        // Framework filtered by Pod Type (+ user enable flags)
                         PropertySection(title: "Framework") {
-                            let type = projectManager.pods[podIndex].type
-                            let options = frameworkManager.availableFrameworks(for: type)
-                            
+                            let options = frameworkManager.availableFrameworks(for: pod.type)
                             Picker("Framework", selection: Binding(
                                 get: {
-                                    let current = projectManager.pods[podIndex].framework
-                                    if options.contains(current) { return current }
-                                    return type.defaultFramework
+                                    let current = live?.framework ?? pod.framework
+                                    return options.contains(current) ? current : pod.type.defaultFramework
                                 },
-                                set: { newFramework in
-                                    projectManager.pods[podIndex].framework = newFramework
-                                    projectManager.updatePod(projectManager.pods[podIndex])
-                                }
+                                set: { onRequestFrameworkChange($0) }
                             )) {
                                 ForEach(options, id: \.self) { framework in
                                     HStack {
@@ -88,7 +323,7 @@ struct PropertyBarView: View {
                             }
                             .pickerStyle(.menu)
                             
-                            Text("Assumed stack for \(type.rawValue). Each pod is its own Kubernetes Pod.")
+                            Text("Switching framework wipes this pod’s code and rebuilds a clean starter (confirm required).")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -98,16 +333,15 @@ struct PropertyBarView: View {
                         
                         PropertySection(title: "Kubernetes") {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("Image: \(KubernetesManifestService.containerImage(for: projectManager.pods[podIndex].framework))")
+                                Text("Image: \(KubernetesManifestService.containerImage(for: pod.framework))")
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundColor(.secondary)
                                 
                                 Button {
-                                    projectManager.pods[podIndex].regenerateKubernetesYAML()
-                                    projectManager.selectedPod = projectManager.pods[podIndex]
-                                    if let path = projectManager.pods[podIndex].projectPath {
+                                    mutate { $0.regenerateKubernetesYAML() }
+                                    if let path = live?.projectPath, let yaml = live?.kubernetesYAML {
                                         try? KubernetesManifestService.writeYAML(
-                                            projectManager.pods[podIndex].kubernetesYAML,
+                                            yaml,
                                             to: URL(fileURLWithPath: path)
                                         )
                                     }
@@ -124,13 +358,13 @@ struct PropertyBarView: View {
                         
                         PropertySection(title: "Git") {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("This pod is its own git repository — Android, Apple, and Web teams scale independently.")
+                                Text("This pod is its own git repository — teams scale independently.")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
                                 
                                 Button {
-                                    projectManager.selectedPod = projectManager.pods[podIndex]
+                                    if let p = live { projectManager.selectedPod = p }
                                     projectManager.viewMode = .git
                                 } label: {
                                     Label("Open Git", systemImage: "arrow.triangle.branch")
@@ -142,31 +376,23 @@ struct PropertyBarView: View {
                         
                         Divider()
                         
-                        // Position
                         PropertySection(title: "Position") {
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack {
                                     Text("X:")
                                         .frame(width: 30, alignment: .leading)
                                     TextField("X", value: Binding(
-                                        get: { Double(projectManager.pods[podIndex].position.x) },
-                                        set: { newX in
-                                            projectManager.pods[podIndex].position.x = CGFloat(newX)
-                                            projectManager.selectedPod = projectManager.pods[podIndex]
-                                        }
+                                        get: { Double(live?.position.x ?? 0) },
+                                        set: { x in mutate { $0.position.x = CGFloat(x) } }
                                     ), format: .number)
                                     .textFieldStyle(.roundedBorder)
                                 }
-                                
                                 HStack {
                                     Text("Y:")
                                         .frame(width: 30, alignment: .leading)
                                     TextField("Y", value: Binding(
-                                        get: { Double(projectManager.pods[podIndex].position.y) },
-                                        set: { newY in
-                                            projectManager.pods[podIndex].position.y = CGFloat(newY)
-                                            projectManager.selectedPod = projectManager.pods[podIndex]
-                                        }
+                                        get: { Double(live?.position.y ?? 0) },
+                                        set: { y in mutate { $0.position.y = CGFloat(y) } }
                                     ), format: .number)
                                     .textFieldStyle(.roundedBorder)
                                 }
@@ -175,15 +401,14 @@ struct PropertyBarView: View {
                         
                         Divider()
                         
-                        // Connections
                         PropertySection(title: "Connections") {
                             VStack(alignment: .leading, spacing: 4) {
-                                if selectedPod.connections.isEmpty {
+                                if pod.connections.isEmpty {
                                     Text("No connections")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 } else {
-                                    ForEach(selectedPod.connections, id: \.self) { connectionId in
+                                    ForEach(pod.connections, id: \.self) { connectionId in
                                         if let connectedPod = projectManager.pods.first(where: { $0.id == connectionId }) {
                                             HStack {
                                                 Image(systemName: connectedPod.type.icon)
@@ -191,9 +416,9 @@ struct PropertyBarView: View {
                                                 Text(connectedPod.name)
                                                     .font(.caption)
                                                 Spacer()
-                                                Button(action: {
-                                                    projectManager.disconnectPods(from: selectedPod.id, to: connectionId)
-                                                }) {
+                                                Button {
+                                                    projectManager.disconnectPods(from: podId, to: connectionId)
+                                                } label: {
                                                     Image(systemName: "xmark.circle.fill")
                                                         .foregroundColor(.secondary)
                                                 }
@@ -206,16 +431,14 @@ struct PropertyBarView: View {
                             }
                         }
                         
-                        // Python Requirements (if Python framework)
-                        if [.django, .flask, .fastapi, .purepy].contains(selectedPod.framework) {
+                        if [.django, .flask, .fastapi, .purepy].contains(pod.framework) {
                             Divider()
-                            
                             PropertySection(title: "Python Requirements") {
                                 TextEditor(text: Binding(
-                                    get: { projectManager.pods[podIndex].pythonRequirements },
-                                    set: { newRequirements in
-                                        projectManager.pods[podIndex].pythonRequirements = newRequirements
-                                        projectManager.updatePod(projectManager.pods[podIndex])
+                                    get: { live?.pythonRequirements ?? "" },
+                                    set: { value in
+                                        mutate { $0.pythonRequirements = value }
+                                        if let p = live { projectManager.updatePod(p) }
                                     }
                                 ))
                                 .font(.system(size: 11, design: .monospaced))
@@ -228,17 +451,18 @@ struct PropertyBarView: View {
                         
                         Divider()
                         
-                        // Project Path
                         PropertySection(title: "Project Path") {
-                            if let projectPath = selectedPod.projectPath {
+                            if let projectPath = pod.projectPath {
                                 Text(projectPath)
                                     .font(.system(size: 10, design: .monospaced))
                                     .foregroundColor(.secondary)
                                     .textSelection(.enabled)
                                 
-                                Button(action: {
-                                    projectManager.openPodProjectInFinder(selectedPod)
-                                }) {
+                                Button {
+                                    if let p = live {
+                                        projectManager.openPodProjectInFinder(p)
+                                    }
+                                } label: {
                                     HStack {
                                         Image(systemName: "folder")
                                         Text("Open in Finder")
@@ -255,17 +479,16 @@ struct PropertyBarView: View {
                         
                         Divider()
                         
-                        // Files
                         PropertySection(title: "Files") {
                             VStack(alignment: .leading, spacing: 4) {
-                                ForEach(selectedPod.files) { file in
+                                ForEach(pod.files) { file in
                                     HStack {
                                         Image(systemName: file.language.icon)
                                             .foregroundColor(file.language.color)
                                         Text(file.name)
                                             .font(.caption)
                                         Spacer()
-                                        if file.id == selectedPod.selectedFileId {
+                                        if file.id == pod.selectedFileId {
                                             Image(systemName: "checkmark.circle.fill")
                                                 .foregroundColor(.accentColor)
                                                 .font(.system(size: 10))
@@ -274,45 +497,49 @@ struct PropertyBarView: View {
                                     .padding(.vertical, 2)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
-                                        projectManager.pods[podIndex].selectedFileId = file.id
-                                        projectManager.selectedPod = projectManager.pods[podIndex]
+                                        mutate { $0.selectedFileId = file.id }
                                     }
                                 }
                             }
+                        }
+                        
+                        Divider()
+                        
+                        PropertySection(title: "Danger zone") {
+                            Button(role: .destructive) {
+                                onRequestDelete()
+                            } label: {
+                                Label("Delete Pod…", systemImage: "trash")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
                         }
                     }
                     .padding()
                 }
                 .background(Color(NSColor.textBackgroundColor))
-            } else {
-                VStack {
-                    Spacer()
-                    Text("Select a pod to view its properties")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding()
-                    Spacer()
+                .sheet(isPresented: $showEnvEditor) {
+                    InferenceEnvEditorView(podId: podId)
+                        .environmentObject(projectManager)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(NSColor.textBackgroundColor))
+            } else {
+                // Pod vanished mid-frame — show empty, do not trap
+                Color.clear
             }
         }
     }
     
-    /// When Pod Type changes, snap Framework to a compatible default if needed.
-    private func applyPodType(_ newType: PodType, podIndex: Int) {
-        guard podIndex < projectManager.pods.count else { return }
-        let previous = projectManager.pods[podIndex].framework
-        let resolved = newType.resolvedFramework(current: previous)
-        
-        projectManager.pods[podIndex].type = newType
-        if resolved != previous {
-            projectManager.pods[podIndex].framework = resolved
-            // Rebuild launch file + K8s assumptions for the new stack
-            projectManager.updatePod(projectManager.pods[podIndex])
-        } else {
-            projectManager.selectedPod = projectManager.pods[podIndex]
+    /// Mutate pod by id with full array reassignment (never use a stale index).
+    private func mutate(_ body: (inout Pod) -> Void) {
+        guard let index = projectManager.pods.firstIndex(where: { $0.id == podId }),
+              projectManager.pods.indices.contains(index) else { return }
+        var pod = projectManager.pods[index]
+        body(&pod)
+        // Re-resolve index in case array shifted mid-mutation
+        guard let fresh = projectManager.pods.firstIndex(where: { $0.id == podId }) else { return }
+        projectManager.pods[fresh] = pod
+        if projectManager.selectedPod?.id == podId {
+            projectManager.selectedPod = pod
         }
     }
 }
@@ -338,4 +565,3 @@ struct PropertySection<Content: View>: View {
         }
     }
 }
-

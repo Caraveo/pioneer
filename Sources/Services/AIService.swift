@@ -338,6 +338,10 @@ class AIService: ObservableObject {
         case .postgresql, .mysql, .sqlite: return "SQL"
         case .mongodb: return "MongoDB shell (JavaScript)"
         case .redis: return "Redis CLI commands"
+        case .vault: return "Markdown / vault layout docs"
+        case .minio, .s3, .nfs, .seaweedfs: return "dotenv / storage config"
+        case .localVolume: return "YAML (Kubernetes PVC)"
+        case .environment: return "dotenv / environment keys"
         }
     }
     
@@ -400,6 +404,20 @@ class AIService: ObservableObject {
             return "IDIOMS: mongosh JS — db.collection.insertOne/find, valid JS.\n"
         case .redis:
             return "IDIOMS: redis-cli commands SET/GET/SADD, one command per line.\n"
+        case .vault:
+            return "IDIOMS: document vault layout under data/buckets, mount path /vault, index.json optional.\n"
+        case .minio:
+            return "IDIOMS: MinIO env MINIO_ROOT_USER/PASSWORD, S3_ENDPOINT for clients, KEY=value only.\n"
+        case .s3:
+            return "IDIOMS: AWS/S3 env keys AWS_REGION, S3_BUCKET, optional S3_ENDPOINT for compat APIs.\n"
+        case .localVolume:
+            return "IDIOMS: Kubernetes PVC YAML apiVersion/kind PersistentVolumeClaim, storage size/class.\n"
+        case .nfs:
+            return "IDIOMS: NFS_SERVER, NFS_PATH, mount options as KEY=value.\n"
+        case .seaweedfs:
+            return "IDIOMS: SeaweedFS master/volume/filer/S3 ports as KEY=value.\n"
+        case .environment:
+            return "IDIOMS: KEY=value lines, comments with #, group by Public/Private/Developer scopes.\n"
         }
     }
     
@@ -491,6 +509,12 @@ class AIService: ObservableObject {
         case .redis:
             let u = line.uppercased()
             return u.hasPrefix("#") || u.hasPrefix("SET ") || u.hasPrefix("GET ") || u.hasPrefix("SADD ")
+        case .vault, .localVolume:
+            return line.hasPrefix("#") || line.hasPrefix("apiVersion") || line.hasPrefix("kind:") || line.hasPrefix("-") || line.hasPrefix("```") || line.contains("/")
+        case .minio, .s3, .nfs, .seaweedfs:
+            return line.hasPrefix("#") || line.contains("=")
+        case .environment:
+            return line.hasPrefix("#") || line.contains("=")
         }
     }
     
@@ -810,6 +834,76 @@ class AIService: ObservableObject {
             return """
             # Generated redis for: \(prompt)
             SET app:note "\(prompt)"
+            """
+            
+        case .environment:
+            return """
+            # Inference env for: \(prompt)
+            API_BASE_URL=http://localhost:8000
+            DEBUG=true
+            """
+            
+        case .vault:
+            return """
+            # Vault layout for: \(prompt)
+            # Root: /vault  ·  buckets: public, private, uploads
+
+            data/
+              buckets/
+                public/
+                private/
+                uploads/
+              index.json
+            """
+            
+        case .minio:
+            return """
+            # MinIO for: \(prompt)
+            MINIO_ROOT_USER=minioadmin
+            MINIO_ROOT_PASSWORD=minioadmin
+            MINIO_VOLUMES=/data
+            S3_ENDPOINT=http://minio:9000
+            S3_BUCKET=app
+            """
+            
+        case .s3:
+            return """
+            # S3 for: \(prompt)
+            AWS_REGION=us-east-1
+            AWS_ACCESS_KEY_ID=
+            AWS_SECRET_ACCESS_KEY=
+            S3_BUCKET=app
+            S3_PREFIX=uploads/
+            """
+            
+        case .localVolume:
+            return """
+            apiVersion: v1
+            kind: PersistentVolumeClaim
+            metadata:
+              name: vault-data
+            spec:
+              accessModes: [ReadWriteOnce]
+              resources:
+                requests:
+                  storage: 10Gi
+            """
+            
+        case .nfs:
+            return """
+            # NFS for: \(prompt)
+            NFS_SERVER=nfs.local
+            NFS_PATH=/exports/app
+            VAULT_MOUNT_PATH=/vault
+            """
+            
+        case .seaweedfs:
+            return """
+            # SeaweedFS for: \(prompt)
+            SEAWEED_MASTER=:9333
+            SEAWEED_VOLUME=:8080
+            SEAWEED_FILER=:8888
+            SEAWEED_S3=:8333
             """
             
         case .terraform:

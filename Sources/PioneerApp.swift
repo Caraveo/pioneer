@@ -5,6 +5,10 @@ import AppKit
 struct PioneerApp: App {
     @StateObject private var projectManager = ProjectManager()
     @AppStorage("appearance") private var appearance: AppearanceMode = .system
+    /// Layout panels — shared with ContentView / Toolbar via the same AppStorage keys.
+    @AppStorage("showHierarchy") private var showHierarchy = true
+    @AppStorage("showPropertyBar") private var showPropertyBar = true
+    @AppStorage("showMainToolbar") private var showMainToolbar = true
     @State private var showAISettings = false
     @State private var showFrameworkSettings = false
     @State private var showProjectSettings = false
@@ -128,6 +132,33 @@ struct PioneerApp: App {
                     showProjectSettings = true
                 }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
+            }
+            
+            // View menu: checkmark toggles for toolbars / side panels
+            CommandMenu("View") {
+                Toggle("Hierarchy", isOn: $showHierarchy)
+                    .keyboardShortcut("1", modifiers: [.command, .option])
+                
+                Toggle("Properties", isOn: $showPropertyBar)
+                    .keyboardShortcut("2", modifiers: [.command, .option])
+                
+                Toggle("Toolbar", isOn: $showMainToolbar)
+                    .keyboardShortcut("3", modifiers: [.command, .option])
+                
+                Divider()
+                
+                Button("Show All Panels") {
+                    showHierarchy = true
+                    showPropertyBar = true
+                    showMainToolbar = true
+                }
+                .keyboardShortcut("0", modifiers: [.command, .option])
+                
+                Button("Hide All Panels") {
+                    showHierarchy = false
+                    showPropertyBar = false
+                    showMainToolbar = false
+                }
             }
         }
     }

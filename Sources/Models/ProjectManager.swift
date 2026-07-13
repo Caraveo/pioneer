@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Combine
 import AppKit
+import UniformTypeIdentifiers
 
 enum ViewMode: String, CaseIterable {
     case podCanvas = "PODS"
@@ -34,10 +35,253 @@ class ProjectManager: ObservableObject {
     @Published var aiService = AIService()
     @Published var currentProjectPath: URL?
     @Published var projectName: String = "Untitled Project"
+    /// True while Play All is executing pods sequentially.
+    @Published var isFleetRunning: Bool = false
+    /// Latest fleet / per-pod run log (shown in terminal consumers if desired).
+    @Published var lastRunLog: String = ""
+    /// Rocket (cloud) launch state
+    @Published var isRocketLaunching: Bool = false
+    @Published var cloudProviders: [CloudProviderStatus] = []
+    @Published var rocketLog: String = ""
     
     init() {
         // Create a default pod for demonstration
         createDefaultPods()
+        Task { await refreshCloudProviders() }
+    }
+    
+    // MARK: - Rocket (cloud launch)
+    
+    func refreshCloudProviders() async {
+        let detected = await CloudLaunchService.detectAll()
+        await MainActor.run {
+            cloudProviders = detected
+        }
+    }
+    
+    private func projectURL(for pod: Pod) -> URL {
+        if let path = pod.projectPath {
+            return URL(fileURLWithPath: path)
+        }
+        return podProjectService.getProjectPath(for: pod, projectName: projectName)
+    }
+    
+    func rocketLaunchSelected(provider: CloudProviderKind) async {
+        guard let pod = selectedPod else {
+            await MainActor.run { rocketLog = "Select a pod first, then hit Rocket.\n" }
+            return
+        }
+        await MainActor.run {
+            isRocketLaunching = true
+            rocketLog = "🚀 Preparing launch…\n"
+        }
+        saveCurrentPodFiles()
+        // Ensure files on disk
+        let url = projectURL(for: pod)
+        try? await podProjectService.saveAllFiles(pod: pod, projectPath: url)
+        
+        let result = await CloudLaunchService.launch(pod: pod, projectPath: url, provider: provider)
+        await MainActor.run {
+            rocketLog = result.log
+            lastRunLog += result.log
+            if result.success {
+                setPodRunning(id: pod.id, true)
+            }
+            isRocketLaunching = false
+        }
+    }
+    
+    func rocketLaunchAll(provider: CloudProviderKind) async {
+        await MainActor.run {
+            isRocketLaunching = true
+            rocketLog = "🚀 Fleet rocket armed…\n"
+        }
+        saveCurrentPodFiles()
+        
+        let snapshot = pods
+        let log = await CloudLaunchService.launchFleet(
+            pods: snapshot,
+            projectPathFor: { [weak self] pod in
+                guard let self else {
+                    return URL(fileURLWithPath: NSTemporaryDirectory())
+                }
+                // projectURL is MainActor — resolve path string on main
+                return self.projectURL(for: pod)
+            },
+            provider: provider
+        )
+        
+        await MainActor.run {
+            rocketLog = log
+            lastRunLog += log
+            for p in snapshot {
+                // Mark non-failed pods live if log suggests success for that name
+                if log.contains("🟢") || log.contains("✅") {
+                    if !log.contains("🔴 \(p.name)") {
+                        setPodRunning(id: p.id, true)
+                    }
+                }
+            }
+            isRocketLaunching = false
+        }
+    }
+    
+    // MARK: - Runtime (Play / status)
+    
+    func setPodRunning(id: UUID, _ running: Bool) {
+        guard let index = pods.firstIndex(where: { $0.id == id }) else { return }
+        var pod = pods[index]
+        pod.isRunning = running
+        pods[index] = pod
+        if selectedPod?.id == id {
+            selectedPod = pod
+        }
+    }
+    
+    /// Click status indicator: toggle green ↔ red locally.
+    /// Turning off also best-effort stops the K8s pod; turning on runs that pod.
+    func togglePodRunning(id: UUID) {
+        guard let index = pods.firstIndex(where: { $0.id == id }) else { return }
+        let currently = pods[index].isRunning
+        if currently {
+            setPodRunning(id: id, false)
+            let name = KubernetesManifestService.sanitizeK8sName(pods[index].name, id: id)
+            Task {
+                _ = await KubernetesManifestService.stopPod(named: name)
+            }
+        } else {
+            Task {
+                await runSinglePod(id: id)
+            }
+        }
+    }
+    
+    /// Play: run all pods (including Inference env check) in dependency-ish order.
+    func playAllPods() {
+        guard !isFleetRunning else { return }
+        Task { await runFleet() }
+    }
+    
+    func stopAllPods() {
+        Task {
+            await MainActor.run { isFleetRunning = false }
+            for pod in pods where pod.isRunning {
+                setPodRunning(id: pod.id, false)
+                let name = KubernetesManifestService.sanitizeK8sName(pod.name, id: pod.id)
+                _ = await KubernetesManifestService.stopPod(named: name)
+            }
+            await MainActor.run {
+                lastRunLog += "\n⏹ Stopped all pods\n"
+            }
+        }
+    }
+    
+    private func runFleet() async {
+        await MainActor.run {
+            isFleetRunning = true
+            lastRunLog = "▶️ Play all — running \(pods.count) pod(s)…\n"
+        }
+        saveCurrentPodFiles()
+        
+        // Order: Inference first, then databases, then services, then clients
+        let ordered = pods.sorted { a, b in
+            runtimePriority(a) < runtimePriority(b)
+        }
+        
+        for pod in ordered {
+            let log = await runSinglePod(id: pod.id)
+            await MainActor.run {
+                lastRunLog += log + "\n"
+            }
+        }
+        
+        await MainActor.run {
+            isFleetRunning = false
+            lastRunLog += "✅ Fleet run finished\n"
+        }
+    }
+    
+    private func runtimePriority(_ pod: Pod) -> Int {
+        switch pod.type {
+        case .inference: return 0
+        case .database, .vault: return 1
+        case .service, .awsBackend: return 2
+        case .iOSApp, .androidApp, .macOSApp: return 3
+        case .custom: return 4
+        }
+    }
+    
+    @discardableResult
+    func runSinglePod(id: UUID) async -> String {
+        guard let index = await MainActor.run(body: { pods.firstIndex(where: { $0.id == id }) }) else {
+            return "Pod not found\n"
+        }
+        var pod = await MainActor.run { pods[index] }
+        
+        await MainActor.run { setPodRunning(id: id, true) }
+        
+        let workingDirectory: URL
+        if let path = pod.projectPath {
+            workingDirectory = URL(fileURLWithPath: path)
+        } else {
+            workingDirectory = podProjectService.getProjectPath(for: pod, projectName: projectName)
+        }
+        try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        
+        // Refresh latest
+        if let live = await MainActor.run(body: { pods.first(where: { $0.id == id }) }) {
+            pod = live
+        }
+        
+        var mutable = pod
+        _ = mutable.getOrCreateMainFile()
+        pod = mutable
+        await MainActor.run {
+            if let i = pods.firstIndex(where: { $0.id == id }) {
+                pods[i] = pod
+            }
+        }
+        
+        do {
+            try await podProjectService.saveAllFiles(pod: pod, projectPath: workingDirectory)
+        } catch {
+            await MainActor.run { setPodRunning(id: id, false) }
+            return "❌ \(pod.name): failed to save — \(error.localizedDescription)\n"
+        }
+        
+        // Inference hub: materialize .env only (no long-running container required)
+        if pod.type == .inference {
+            let env = Pod.makeEnvFileContent(name: pod.name, bindings: pod.environmentVariables)
+            let envURL = workingDirectory.appendingPathComponent(".env")
+            try? env.write(to: envURL, atomically: true, encoding: .utf8)
+            try? KubernetesManifestService.writeYAML(pod.kubernetesYAML, to: workingDirectory)
+            // Keep green — hub is "active"
+            return "🟣 Inference “\(pod.name)” active — \(pod.environmentVariables.count) env key(s), .env written\n"
+        }
+        
+        var yaml = pod.kubernetesYAML
+        if yaml.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            yaml = KubernetesManifestService.generateYAML(for: pod, projectPath: workingDirectory.path)
+        }
+        
+        let output = await KubernetesManifestService.run(
+            pod: pod,
+            yaml: yaml,
+            projectPath: workingDirectory
+        )
+        
+        let failed = output.lowercased().contains("❌")
+            || output.lowercased().contains("error:")
+            || output.lowercased().contains("syntaxerror")
+            || output.contains("command terminated with exit code")
+        
+        if failed {
+            await MainActor.run { setPodRunning(id: id, false) }
+            return "🔴 \(pod.name) failed\n\(output)"
+        }
+        
+        // Stay green: treated as running/healthy after successful start
+        return "🟢 \(pod.name) running\n\(output)"
     }
     
     // MARK: - Project Save/Load
@@ -318,17 +562,34 @@ class ProjectManager: ObservableObject {
     
     func saveProjectAs() {
         let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.init(filenameExtension: "code")!]
+        // Pioneer project archives use `.core` (legacy `.code` still opens below)
+        var types: [UTType] = []
+        if let core = UTType(filenameExtension: "core") {
+            types.append(core)
+        }
+        savePanel.allowedContentTypes = types.isEmpty ? [.data] : types
         savePanel.nameFieldStringValue = projectName
         savePanel.title = "Save Pioneer Project"
         savePanel.prompt = "Save"
+        savePanel.message = "Pioneer projects use the .core extension"
         
         savePanel.begin { [weak self] response in
             guard let self = self else { return }
             if response == .OK, let url = savePanel.url {
+                // Ensure .core extension even if the panel omitted it
+                let finalURL: URL
+                if url.pathExtension.lowercased() == "core" {
+                    finalURL = url
+                } else if url.pathExtension.lowercased() == "code" {
+                    finalURL = url.deletingPathExtension().appendingPathExtension("core")
+                } else if url.pathExtension.isEmpty {
+                    finalURL = url.appendingPathExtension("core")
+                } else {
+                    finalURL = url.deletingPathExtension().appendingPathExtension("core")
+                }
                 Task { @MainActor in
                     do {
-                        try await self.saveProject(to: url)
+                        try await self.saveProject(to: finalURL)
                     } catch {
                         print("Failed to save project: \(error)")
                     }
@@ -339,10 +600,15 @@ class ProjectManager: ObservableObject {
     
     func openProject() {
         let openPanel = NSOpenPanel()
-        openPanel.allowedContentTypes = [.init(filenameExtension: "code")!]
+        // Prefer `.core`; still accept legacy `.code` archives
+        var types: [UTType] = []
+        if let core = UTType(filenameExtension: "core") { types.append(core) }
+        if let legacy = UTType(filenameExtension: "code") { types.append(legacy) }
+        openPanel.allowedContentTypes = types.isEmpty ? [.data] : types
         openPanel.title = "Open Pioneer Project"
         openPanel.prompt = "Open"
         openPanel.allowsMultipleSelection = false
+        openPanel.message = "Open a .core project (legacy .code also supported)"
         
         openPanel.begin { response in
             if response == .OK, let url = openPanel.url {
@@ -489,6 +755,71 @@ class ProjectManager: ObservableObject {
         }
     }
     
+    /// Wipe on-disk project files (keep `.git`) and rescaffold for the pod’s current framework.
+    private func wipeAndRescaffoldPod(_ pod: Pod) async {
+        let projectPath = podProjectService.getProjectPath(for: pod, projectName: projectName)
+        let fm = FileManager.default
+        
+        // Clear everything under the pod folder except git metadata
+        if fm.fileExists(atPath: projectPath.path) {
+            if let items = try? fm.contentsOfDirectory(at: projectPath, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                for item in items {
+                    if item.lastPathComponent == ".git" { continue }
+                    try? fm.removeItem(at: item)
+                }
+            }
+            // Also remove non-git hidden files/dirs (e.g. .env leftover) but keep .git
+            if let all = try? fm.contentsOfDirectory(at: projectPath, includingPropertiesForKeys: nil, options: []) {
+                for item in all where item.lastPathComponent != ".git" {
+                    try? fm.removeItem(at: item)
+                }
+            }
+        } else {
+            try? fm.createDirectory(at: projectPath, withIntermediateDirectories: true)
+        }
+        
+        // Use the latest in-memory wiped pod (single starter file)
+        let latest = await MainActor.run { pods.first(where: { $0.id == pod.id }) ?? pod }
+        
+        do {
+            try await podProjectService.createProjectStructure(for: latest, projectName: projectName)
+            try await podProjectService.saveAllFiles(pod: latest, projectPath: projectPath)
+            try KubernetesManifestService.writeYAML(latest.kubernetesYAML, to: projectPath)
+        } catch {
+            print("Failed to wipe/rescaffold pod \(pod.name): \(error)")
+        }
+        
+        if latest.framework.needsEnvironment && [.django, .flask, .fastapi, .purepy].contains(latest.framework) {
+            await pythonBridge.ensureVirtualEnvironment(for: latest)
+        }
+        
+        await MainActor.run {
+            if let index = pods.firstIndex(where: { $0.id == pod.id }) {
+                var p = pods[index]
+                p.projectPath = projectPath.path
+                pods[index] = p
+                // Force CODE editor / browser to refresh wiped files
+                selectedPod = p
+            }
+        }
+    }
+    
+    /// Confirmed Wipe Pod: delete all code/files and rebuild from the new framework template.
+    func wipePodToFramework(id: UUID, newFramework: Framework) {
+        guard let index = pods.firstIndex(where: { $0.id == id }) else { return }
+        
+        var pod = pods[index]
+        // Hard reset in-memory codebase for the editor
+        pod.switchToFramework(newFramework)
+        pods[index] = pod
+        selectedPod = pod
+        
+        // Wipe disk and write only the new scaffold
+        Task {
+            await wipeAndRescaffoldPod(pod)
+        }
+    }
+    
     func updatePod(_ pod: Pod) {
         // CRITICAL: This must run on main thread since it mutates @Published properties
         guard let index = pods.firstIndex(where: { $0.id == pod.id }) else { return }
@@ -497,43 +828,50 @@ class ProjectManager: ObservableObject {
         let oldProjectPath = pods[index].projectPath
         let oldName = pods[index].name
         
+        // Framework change must go through wipePodToFramework (explicit wipe)
+        if oldFramework != pod.framework {
+            wipePodToFramework(id: pod.id, newFramework: pod.framework)
+            // Preserve any non-framework fields already on `pod` after wipe started
+            if let i = pods.firstIndex(where: { $0.id == pod.id }) {
+                var wiped = pods[i]
+                wiped.name = pod.name
+                wiped.type = pod.type
+                wiped.position = pod.position
+                wiped.connections = pod.connections
+                pods[i] = wiped
+                selectedPod = wiped
+            }
+            return
+        }
+        
         pods[index] = pod
         
-        // Ensure main file exists when framework changes
-        if oldFramework != pod.framework {
-            let mainFile = pods[index].getOrCreateMainFile()
-            if pods[index].selectedFileId == nil {
-                pods[index].selectedFileId = mainFile.id
-            }
-            // Framework defines container image + entrypoint → refresh K8s YAML
-            pods[index].regenerateKubernetesYAML()
-        } else if oldName != pod.name || oldProjectPath != pod.projectPath {
+        if oldName != pod.name || oldProjectPath != pod.projectPath {
             // Keep metadata in YAML in sync when name/path change
             pods[index].regenerateKubernetesYAML()
-        }
-        
-        // Persist k8s/pod.yaml beside project code
-        if let path = pods[index].projectPath {
-            try? KubernetesManifestService.writeYAML(
-                pods[index].kubernetesYAML,
-                to: URL(fileURLWithPath: path)
-            )
-        }
-        
-        // Ensure project structure exists
-        if pod.projectPath == nil || oldProjectPath != pod.projectPath {
-            Task {
-                await initializePodProject(pod: pods[index])
+            if let path = pods[index].projectPath {
+                try? KubernetesManifestService.writeYAML(
+                    pods[index].kubernetesYAML,
+                    to: URL(fileURLWithPath: path)
+                )
             }
         } else {
-            // Save all files to project
-                    Task {
-                        do {
-                            try await podProjectService.saveAllFiles(pod: pods[index], projectPath: podProjectService.getProjectPath(for: pods[index], projectName: projectName))
-                        } catch {
-                            print("Failed to save files: \(error)")
-                        }
-                    }
+            // Soft repair: ensure launch file content matches framework language
+            _ = pods[index].getOrCreateMainFile()
+            if let path = pods[index].projectPath {
+                try? KubernetesManifestService.writeYAML(
+                    pods[index].kubernetesYAML,
+                    to: URL(fileURLWithPath: path)
+                )
+            }
+            Task {
+                do {
+                    let projectPath = podProjectService.getProjectPath(for: pods[index], projectName: projectName)
+                    try await podProjectService.saveAllFiles(pod: pods[index], projectPath: projectPath)
+                } catch {
+                    print("Failed to save files: \(error)")
+                }
+            }
         }
         
         // If framework changed to Python-based, ensure virtual environment exists
@@ -591,27 +929,242 @@ class ProjectManager: ObservableObject {
     }
     
     
+    /// Remove a pod safely (no crash when deleting the last one).
+    /// PropertyBar / editors bind by id; never leave `selectedPod` pointing at a removed pod.
     func deletePod(_ pod: Pod) {
-        pods.removeAll { $0.id == pod.id }
-        // Remove connections to this pod
-        for i in pods.indices {
-            pods[i].connections.removeAll { $0 == pod.id }
+        deletePod(id: pod.id)
+    }
+    
+    func deletePod(id: UUID) {
+        // Clear connection / drag state that referenced this pod
+        if connectingFromPodId == id {
+            connectingFromPodId = nil
         }
-        if selectedPod?.id == pod.id {
+        if hoveredConnectionPoint?.podId == id {
+            hoveredConnectionPoint = nil
+        }
+        
+        // Drop relationships pointing at this pod (full reassignment for @Published)
+        var next = pods.filter { $0.id != id }
+        for i in next.indices {
+            next[i].connections.removeAll { $0 == id }
+        }
+        
+        let wasSelected = selectedPod?.id == id
+        let fallback = next.first
+        
+        // 1) Drop selection first so PropertyBar / CodeEditor unmount before pods mutates.
+        //    Stale Bindings that closed over a removed index caused EXC_BAD_INSTRUCTION.
+        if wasSelected {
             selectedPod = nil
+        } else if let sel = selectedPod, !next.contains(where: { $0.id == sel.id }) {
+            selectedPod = nil
+        }
+        
+        // 2) Mutate the array
+        pods = next
+        
+        if next.isEmpty {
+            selectedPod = nil
+            viewMode = .podCanvas
+            return
+        }
+        
+        // 3) Reselect on the next run-loop turn so SwiftUI finishes tearing down the
+        //    old PropertyBar tree (and any AttributeGraph nodes that held indices).
+        if wasSelected, let fallback {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                // Only reselect if nothing else took selection in the meantime
+                if self.selectedPod == nil,
+                   self.pods.contains(where: { $0.id == fallback.id }) {
+                    self.selectedPod = self.pods.first(where: { $0.id == fallback.id })
+                }
+            }
+        }
+    }
+    
+    /// Apply an Inference wizard plan: virtual Inference hub + stack pods + relationship wires.
+    func applyInferencePlan(_ plan: InferencePlan) {
+        let origin = CGPoint(
+            x: 200 + CGFloat(pods.count) * 20,
+            y: 160 + CGFloat(pods.count) * 10
+        )
+        
+        var created: [String: UUID] = [:] // blueprint name → id
+        var newPods: [Pod] = []
+        
+        for bp in plan.podBlueprints {
+            let pos = CGPoint(x: origin.x + bp.position.x - 420, y: origin.y + bp.position.y - 120)
+            var pod: Pod
+            if bp.type == .inference {
+                let envContent = Pod.makeEnvFileContent(name: bp.name, bindings: plan.env)
+                pod = Pod(
+                    name: bp.name,
+                    type: .inference,
+                    position: pos,
+                    code: envContent,
+                    framework: .environment,
+                    environmentVariables: plan.env
+                )
+                // Ensure files match env
+                if let idx = pod.files.firstIndex(where: { $0.path == ".env" }) {
+                    pod.files[idx].content = envContent
+                }
+                pod.kubernetesYAML = Pod.makeInferenceConfigMapYAML(name: bp.name, id: pod.id, bindings: plan.env)
+            } else {
+                pod = Pod(
+                    name: bp.name,
+                    type: bp.type,
+                    position: pos,
+                    code: "",
+                    framework: bp.framework
+                )
+            }
+            created[bp.name] = pod.id
+            newPods.append(pod)
+        }
+        
+        // Wire relationships from plan assumptions:
+        // clients → API, API → DB, Node → DB, Web → Node (or API), Inference → all
+        func id(_ suffix: String) -> UUID? {
+            created.first(where: { $0.key.hasSuffix(suffix) || $0.key.contains(suffix) })?.value
+        }
+        
+        let apiId = created["\(plan.productName) API"]
+        let dbId = created["\(plan.productName) DB"]
+        let nodeId = created["\(plan.productName) Node"]
+        let webId = created["\(plan.productName) Web"]
+        let iosId = created["\(plan.productName) iOS"]
+        let androidId = created["\(plan.productName) Android"]
+        let inferenceId = created["\(plan.productName) Inference"]
+        
+        func link(_ from: UUID?, _ to: UUID?) {
+            guard let from, let to, let idx = newPods.firstIndex(where: { $0.id == from }) else { return }
+            if !newPods[idx].connections.contains(to) {
+                newPods[idx].connections.append(to)
+            }
+        }
+        
+        // iOS / Android → API
+        link(iosId, apiId)
+        link(androidId, apiId)
+        // API → DB
+        link(apiId, dbId)
+        // Node BFF → DB and API
+        link(nodeId, dbId)
+        link(nodeId, apiId)
+        // Web → Node (if present) else API
+        if nodeId != nil {
+            link(webId, nodeId)
+        } else {
+            link(webId, apiId)
+        }
+        // Inference hub fans out to every runtime pod (env ownership)
+        for p in newPods where p.type != .inference {
+            link(inferenceId, p.id)
+        }
+        
+        pods.append(contentsOf: newPods)
+        if let inf = newPods.first(where: { $0.type == .inference }) {
+            selectedPod = inf
+        } else {
+            selectedPod = newPods.first
+        }
+        viewMode = .podCanvas
+        
+        // Scaffold each new pod on disk
+        for p in newPods {
+            Task {
+                await initializePodProject(pod: p)
+            }
+        }
+    }
+    
+    /// Update env keys on an Inference hub and sync `.env` + ConfigMap YAML + disk files.
+    func updateInferenceEnvironment(id: UUID, bindings: [EnvBinding]) {
+        guard let index = pods.firstIndex(where: { $0.id == id }) else { return }
+        guard pods[index].type == .inference else { return }
+        
+        var pod = pods[index]
+        pod.environmentVariables = bindings
+        
+        let envContent = Pod.makeEnvFileContent(name: pod.name, bindings: bindings)
+        pod.code = envContent
+        pod.kubernetesYAML = Pod.makeInferenceConfigMapYAML(name: pod.name, id: pod.id, bindings: bindings)
+        
+        if let fi = pod.files.firstIndex(where: { $0.path == ".env" || $0.name == ".env" }) {
+            pod.files[fi].content = envContent
+            pod.selectedFileId = pod.files[fi].id
+        } else if let fi = pod.files.indices.first {
+            pod.files[fi].content = envContent
+            pod.files[fi].path = ".env"
+            pod.files[fi].name = ".env"
+            pod.selectedFileId = pod.files[fi].id
+        } else {
+            let main = ProjectFile(
+                path: ".env",
+                name: ".env",
+                content: envContent,
+                language: .bash
+            )
+            pod.files = [main]
+            pod.selectedFileId = main.id
+        }
+        
+        pods[index] = pod
+        if selectedPod?.id == id {
+            selectedPod = pod
+        }
+        
+        // Persist .env + YAML when the pod has a project path
+        if let path = pod.projectPath {
+            let projectURL = URL(fileURLWithPath: path)
+            let envURL = projectURL.appendingPathComponent(".env")
+            Task {
+                try? FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+                try? envContent.write(to: envURL, atomically: true, encoding: .utf8)
+                try? KubernetesManifestService.writeYAML(
+                    pod.kubernetesYAML,
+                    to: projectURL
+                )
+                try? await podProjectService.saveAllFiles(pod: pod, projectPath: projectURL)
+            }
+        }
+    }
+    
+    /// Move a pod on the canvas (full reassignment so `@Published` notifies SwiftUI).
+    func movePod(id: UUID, to position: CGPoint) {
+        guard let index = pods.firstIndex(where: { $0.id == id }) else { return }
+        var pod = pods[index]
+        pod.position = position
+        pods[index] = pod
+        if selectedPod?.id == id {
+            selectedPod = pod
         }
     }
     
     func connectPods(from sourceId: UUID, to targetId: UUID) {
-        guard let index = pods.firstIndex(where: { $0.id == sourceId }) else { return }
-        if !pods[index].connections.contains(targetId) {
-            pods[index].connections.append(targetId)
+        guard sourceId != targetId,
+              let index = pods.firstIndex(where: { $0.id == sourceId }) else { return }
+        var pod = pods[index]
+        if !pod.connections.contains(targetId) {
+            pod.connections.append(targetId)
+            pods[index] = pod
+            if selectedPod?.id == sourceId {
+                selectedPod = pod
+            }
         }
     }
     
     func disconnectPods(from sourceId: UUID, to targetId: UUID) {
         guard let index = pods.firstIndex(where: { $0.id == sourceId }) else { return }
-        pods[index].connections.removeAll { $0 == targetId }
+        var pod = pods[index]
+        pod.connections.removeAll { $0 == targetId }
+        pods[index] = pod
+        if selectedPod?.id == sourceId {
+            selectedPod = pod
+        }
     }
     
     func startConnection(from podId: UUID) {

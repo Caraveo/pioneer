@@ -1,22 +1,24 @@
 import SwiftUI
 
 struct AIPromptInput: View {
+    @EnvironmentObject var projectManager: ProjectManager
     @Binding var prompt: String
     @ObservedObject var aiService: AIService
     let isProcessing: Bool
     let onSubmit: () -> Void
     
     @FocusState private var isFocused: Bool
+    @State private var showInferenceWizard = false
     
     var body: some View {
         VStack(spacing: 8) {
-            // Template Selector
+            // Inference / template chip
             if aiService.selectedTemplate != .custom {
                 HStack {
-                    Image(systemName: "doc.text.fill")
+                    Image(systemName: "brain.head.profile")
                         .foregroundColor(.secondary)
                         .font(.system(size: 12))
-                    Text("Template: \(aiService.selectedTemplate.rawValue)")
+                    Text("INFERENCE · \(aiService.selectedTemplate.rawValue)")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                     Spacer()
@@ -34,26 +36,47 @@ struct AIPromptInput: View {
             }
             
             HStack(spacing: 12) {
-                // Template Picker
+                // INFERENCE menu (wizard + generation blueprints)
                 Menu {
-                    ForEach(PromptTemplate.allCases) { template in
-                        Button(action: {
-                            aiService.selectedTemplate = template
-                        }) {
-                            HStack {
-                                Text(template.rawValue)
-                                if aiService.selectedTemplate == template {
-                                    Image(systemName: "checkmark")
+                    Button {
+                        showInferenceWizard = true
+                    } label: {
+                        Label("Inference Wizard…", systemImage: "wand.and.stars")
+                    }
+                    
+                    Divider()
+                    
+                    Section("Blueprints") {
+                        ForEach(PromptTemplate.allCases) { template in
+                            Button(action: {
+                                aiService.selectedTemplate = template
+                            }) {
+                                HStack {
+                                    Text(template.rawValue)
+                                    if aiService.selectedTemplate == template {
+                                        Image(systemName: "checkmark")
+                                    }
                                 }
                             }
                         }
                     }
                 } label: {
-                    Image(systemName: "list.bullet")
-                        .foregroundColor(.blue)
-                        .font(.system(size: 16))
+                    VStack(spacing: 1) {
+                        Image(systemName: "brain.head.profile")
+                            .foregroundColor(Color(red: 0.55, green: 0.35, blue: 0.95))
+                            .font(.system(size: 15))
+                        Text("INFER")
+                            .font(.system(size: 8, weight: .bold, design: .rounded))
+                            .foregroundColor(Color(red: 0.55, green: 0.35, blue: 0.95))
+                    }
+                    .frame(width: 36)
                 }
                 .buttonStyle(.plain)
+                .help("Inference — stack wizard, env keys, generation blueprints")
+                .sheet(isPresented: $showInferenceWizard) {
+                    InferenceWizardView()
+                        .environmentObject(projectManager)
+                }
                 
                 // Input Field
                 TextField(placeholderText, text: $prompt, axis: .vertical)
