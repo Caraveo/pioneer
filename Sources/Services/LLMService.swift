@@ -19,6 +19,8 @@ class LLMService {
             return await listOllamaModels()
         case .mistystudio:
             return await listMistyStudioModels()
+        case .grok:
+            return await listGrokModels()
         }
     }
     
@@ -26,7 +28,7 @@ class LLMService {
         prompt: String,
         systemPrompt: String,
         language: CodeLanguage,
-        context: NodeContext?
+        context: PodContext?
     ) async throws -> String {
         switch configuration.selectedProvider {
         case .openai:
@@ -39,6 +41,8 @@ class LLMService {
             return try await generateWithOllama(prompt: prompt, systemPrompt: systemPrompt, context: context)
         case .mistystudio:
             return try await generateWithMistyStudio(prompt: prompt, systemPrompt: systemPrompt, context: context)
+        case .grok:
+            return try await generateWithGrokCLI(prompt: prompt, systemPrompt: systemPrompt, context: context)
         }
     }
     
@@ -55,7 +59,7 @@ class LLMService {
         ]
     }
     
-    private func generateWithOpenAI(prompt: String, systemPrompt: String, context: NodeContext?) async throws -> String {
+    private func generateWithOpenAI(prompt: String, systemPrompt: String, context: PodContext?) async throws -> String {
         guard !configuration.openAIAPIKey.isEmpty else {
             throw LLMError.missingAPIKey
         }
@@ -97,7 +101,7 @@ class LLMService {
         ]
     }
     
-    private func generateWithAnthropic(prompt: String, systemPrompt: String, context: NodeContext?) async throws -> String {
+    private func generateWithAnthropic(prompt: String, systemPrompt: String, context: PodContext?) async throws -> String {
         guard !configuration.anthropicAPIKey.isEmpty else {
             throw LLMError.missingAPIKey
         }
@@ -137,7 +141,7 @@ class LLMService {
         ]
     }
     
-    private func generateWithGoogle(prompt: String, systemPrompt: String, context: NodeContext?) async throws -> String {
+    private func generateWithGoogle(prompt: String, systemPrompt: String, context: PodContext?) async throws -> String {
         guard !configuration.googleAPIKey.isEmpty else {
             throw LLMError.missingAPIKey
         }
@@ -198,7 +202,7 @@ class LLMService {
         ]
     }
     
-    private func generateWithOllama(prompt: String, systemPrompt: String, context: NodeContext?) async throws -> String {
+    private func generateWithOllama(prompt: String, systemPrompt: String, context: PodContext?) async throws -> String {
         let model = configuration.ollamaModel.isEmpty ? "llama2" : configuration.ollamaModel
         let url = URL(string: "\(LLMProvider.ollama.baseURL)/api/generate")!
         
@@ -249,7 +253,7 @@ class LLMService {
         ]
     }
     
-    private func generateWithMistyStudio(prompt: String, systemPrompt: String, context: NodeContext?) async throws -> String {
+    private func generateWithMistyStudio(prompt: String, systemPrompt: String, context: PodContext?) async throws -> String {
         let model = configuration.mistystudioModel.isEmpty ? "mistral" : configuration.mistystudioModel
         let url = URL(string: "\(LLMProvider.mistystudio.baseURL)/api/v1/chat/completions")!
         
@@ -277,35 +281,70 @@ class LLMService {
     
     // MARK: - Context Building
     
-    struct NodeContext {
-        let currentNode: Node
-        let connectedNodes: [Node]
-        let projectNodes: [Node]
+    struct PodContext {
+        let currentPod: Pod
+        let connectedPods: [Pod]
+        let projectPods: [Pod]
     }
     
-    private func buildContextPrompt(context: NodeContext) -> String {
-        var prompt = "Context about the current project:\n\n"
+    private func buildContextPrompt(context: PodContext) -> String {
+        let pod = context.currentPod
+        let lang = pod.framework.primaryLanguage.rawValue
         
-        if configuration.includeNodeConnections && !context.connectedNodes.isEmpty {
-            prompt += "Connected Nodes:\n"
-            for node in context.connectedNodes {
-                prompt += "- \(node.name) (\(node.type.rawValue)): \(node.framework.rawValue)\n"
-                if !node.code.isEmpty {
-                    prompt += "  Code preview: \(node.code.prefix(100))...\n"
+        var prompt = """
+        AUTHORITATIVE SELECTED POD CONTEXT
+        Generate CODE + YAML only for this pod. CODE must be valid \(lang) for \(pod.framework.rawValue).
+        
+        - Name: \(pod.name)
+        - Type: \(pod.type.rawValue) (\(pod.type.frameworkHint))
+        - Framework: \(pod.framework.rawValue)
+        - Language: \(lang)
+        - Launch file: \(pod.framework.launchFile)
+        - Id: \(pod.id.uuidString)
+        
+        """
+        
+        if let path = pod.projectPath {
+            prompt += "- Project path: \(path)\n"
+        }
+        
+        // File inventory + launch body (primary syntax context)
+        if !pod.files.isEmpty {
+            prompt += "\nFiles in this pod:\n"
+            for file in pod.files.prefix(15) {
+                let mark = file.path == pod.framework.launchFile ? " [LAUNCH]" : ""
+                prompt += "- \(file.path) (\(file.language.rawValue))\(mark)\n"
+            }
+            if let launch = pod.files.first(where: { $0.path == pod.framework.launchFile }) ?? pod.files.first {
+                prompt += "\nLaunch file body (preserve language/style):\n\(String(launch.content.prefix(3500)))\n"
+            }
+        } else if !pod.code.isEmpty {
+            prompt += "\nExisting code:\n\(String(pod.code.prefix(3500)))\n"
+        }
+        
+        if !pod.kubernetesYAML.isEmpty {
+            prompt += "\nExisting YAML preview:\n\(String(pod.kubernetesYAML.prefix(1500)))\n"
+        }
+        
+        if configuration.includePodConnections && !context.connectedPods.isEmpty {
+            prompt += "\nConnected pods (context only — do not rewrite them):\n"
+            for other in context.connectedPods {
+                prompt += "- \(other.name) | \(other.type.rawValue) | \(other.framework.rawValue)\n"
+                if !other.code.isEmpty {
+                    prompt += "  preview: \(other.code.prefix(120))…\n"
                 }
             }
-            prompt += "\n"
         }
         
-        prompt += "Current Node:\n"
-        prompt += "- Name: \(context.currentNode.name)\n"
-        prompt += "- Type: \(context.currentNode.type.rawValue)\n"
-        prompt += "- Framework: \(context.currentNode.framework.rawValue)\n"
-        
-        if !context.currentNode.code.isEmpty {
-            prompt += "- Existing code: \(context.currentNode.code.prefix(200))...\n"
+        // Light graph of sibling pods for architecture awareness
+        if context.projectPods.count > 1 {
+            prompt += "\nOther pods in project (do not generate for them):\n"
+            for other in context.projectPods where other.id != pod.id {
+                prompt += "- \(other.name) (\(other.framework.rawValue))\n"
+            }
         }
         
+        prompt += "\nRemember: ===CODE=== must be pure \(lang) source matching \(pod.framework.launchFile).\n"
         return prompt
     }
     
@@ -416,11 +455,197 @@ class LLMService {
     }
 }
 
+// MARK: - Grok CLI
+
+extension LLMService {
+    /// Resolve path to the `grok` binary (custom path, common install locations, or PATH).
+    static func resolveGrokCLIPath(configured: String = "") -> String? {
+        let candidates: [String] = {
+            var list: [String] = []
+            if !configured.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                list.append(configured)
+            }
+            let home = NSHomeDirectory()
+            list.append(contentsOf: [
+                "\(home)/.grok/bin/grok",
+                "\(home)/.local/bin/grok",
+                "/usr/local/bin/grok",
+                "/opt/homebrew/bin/grok"
+            ])
+            return list
+        }()
+        
+        for path in candidates {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        
+        // Fall back to PATH lookup
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-lc", "command -v grok"]
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if let path = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !path.isEmpty,
+               FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        } catch {
+            return nil
+        }
+        return nil
+    }
+    
+    static func isGrokCLIInstalled(configuredPath: String = "") -> Bool {
+        resolveGrokCLIPath(configured: configuredPath) != nil
+    }
+    
+    private func listGrokModels() async -> [AIModel] {
+        guard let grokPath = Self.resolveGrokCLIPath(configured: configuration.grokCLIPath) else {
+            return []
+        }
+        
+        // Prefer `grok models` when available
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: grokPath)
+        process.arguments = ["models"]
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = (env["PATH"] ?? "") + ":\(NSHomeDirectory())/.grok/bin:\(NSHomeDirectory())/.local/bin:/usr/local/bin:/opt/homebrew/bin"
+        process.environment = env
+        
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            var models: [AIModel] = []
+            for line in output.components(separatedBy: .newlines) {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                // lines like: "  * grok-4.5 (default)" or "  - grok-composer-2.5-fast"
+                guard trimmed.hasPrefix("*") || trimmed.hasPrefix("-") else { continue }
+                var token = trimmed.dropFirst().trimmingCharacters(in: .whitespaces)
+                if let space = token.firstIndex(of: " ") {
+                    token = String(token[..<space])
+                } else {
+                    token = String(token)
+                }
+                if !token.isEmpty {
+                    models.append(AIModel(id: token, name: token, provider: .grok, contextWindow: 128000))
+                }
+            }
+            if !models.isEmpty { return models }
+        } catch {
+            // fall through to defaults
+        }
+        
+        let fallback = configuration.grokModel.isEmpty ? "grok-4.5" : configuration.grokModel
+        return [
+            AIModel(id: fallback, name: "\(fallback) (Grok CLI)", provider: .grok, contextWindow: 128000),
+            AIModel(id: "grok-4.5", name: "grok-4.5", provider: .grok, contextWindow: 128000),
+            AIModel(id: "grok-composer-2.5-fast", name: "grok-composer-2.5-fast", provider: .grok, contextWindow: 128000)
+        ]
+    }
+    
+    private func generateWithGrokCLI(prompt: String, systemPrompt: String, context: PodContext?) async throws -> String {
+        guard let grokPath = Self.resolveGrokCLIPath(configured: configuration.grokCLIPath) else {
+            throw LLMError.grokCLINotFound
+        }
+        
+        var fullPrompt = systemPrompt
+        fullPrompt += "\n\nYou generate BOTH application CODE and Kubernetes Pod YAML for ONE Pioneer pod.\n"
+        fullPrompt += "CODE must use correct syntax for that pod’s language/framework only (no mixed languages, no prose).\n"
+        fullPrompt += "Use ===CODE=== / ===YAML=== / ===END=== markers. No tool use — answer directly.\n"
+        
+        if let context = context, configuration.useContext {
+            fullPrompt += "\n\n" + buildContextPrompt(context: context)
+        }
+        fullPrompt += "\n\nUser request:\n\(prompt)"
+        
+        let model = configuration.selectedModel.isEmpty
+            ? (configuration.grokModel.isEmpty ? "grok-4.5" : configuration.grokModel)
+            : configuration.selectedModel
+        
+        // Headless single-turn generation via Grok CLI
+        // Disable agent tools so we get a pure text completion.
+        let process = Process()
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: grokPath)
+        process.arguments = [
+            "-p", fullPrompt,
+            "-m", model,
+            "--max-turns", "1",
+            "--output-format", "plain",
+            "--disallowed-tools", "Agent,run_terminal_cmd,web_search,web_fetch,search_replace,write,read_file,grep,list_dir,spawn_subagent",
+            "--verbatim"
+        ]
+        
+        var env = ProcessInfo.processInfo.environment
+        let extras = [
+            "\(NSHomeDirectory())/.grok/bin",
+            "\(NSHomeDirectory())/.local/bin",
+            "/usr/local/bin",
+            "/opt/homebrew/bin"
+        ]
+        env["PATH"] = extras.joined(separator: ":") + ":" + (env["PATH"] ?? "")
+        process.environment = env
+        process.standardOutput = outPipe
+        process.standardError = errPipe
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            process.terminationHandler = { proc in
+                let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                let stdout = String(data: outData, encoding: .utf8) ?? ""
+                let stderr = String(data: errData, encoding: .utf8) ?? ""
+                
+                if proc.terminationStatus != 0 && stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    continuation.resume(throwing: LLMError.requestFailed)
+                    return
+                }
+                
+                let result = stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                if result.isEmpty {
+                    // Some versions may print only to stderr
+                    let fallback = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if fallback.isEmpty {
+                        continuation.resume(throwing: LLMError.invalidResponse)
+                    } else {
+                        continuation.resume(returning: fallback)
+                    }
+                    return
+                }
+                continuation.resume(returning: result)
+            }
+            
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume(throwing: LLMError.requestFailed)
+                }
+            }
+        }
+    }
+}
+
 enum LLMError: Error {
     case missingAPIKey
     case requestFailed
     case invalidResponse
     case modelNotFound
+    case grokCLINotFound
 }
 
 

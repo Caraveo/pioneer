@@ -37,7 +37,7 @@ struct TerminalView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(projectManager.selectedNode == nil)
+                .disabled(projectManager.selectedPod == nil)
                 .help("Run Project")
                 
                 Button(action: clearTerminal) {
@@ -109,17 +109,17 @@ struct TerminalView: View {
     }
     
     private func getPrompt() -> String {
-        guard let node = projectManager.selectedNode else {
+        guard let pod = projectManager.selectedPod else {
             return "$ "
         }
         
-        if let projectPath = node.projectPath {
+        if let projectPath = pod.projectPath {
             let url = URL(fileURLWithPath: projectPath)
             let path = url.lastPathComponent
             return "\(path) $ "
         }
         
-        return "\(node.name) $ "
+        return "\(pod.name) $ "
     }
     
     private func executeCommand() {
@@ -144,17 +144,17 @@ struct TerminalView: View {
     }
     
     private func runCommand(_ command: String) async -> String {
-        guard let node = projectManager.selectedNode else {
-            return "Error: No node selected\n"
+        guard let pod = projectManager.selectedPod else {
+            return "Error: No pod selected\n"
         }
         
         // Get working directory
         let workingDirectory: URL
-        if let projectPath = node.projectPath {
+        if let projectPath = pod.projectPath {
             workingDirectory = URL(fileURLWithPath: projectPath)
         } else {
-            // Fallback to node's project path from service
-            workingDirectory = projectManager.nodeProjectService.getProjectPath(for: node, projectName: projectManager.projectName)
+            // Fallback to pod's project path from service
+            workingDirectory = projectManager.podProjectService.getProjectPath(for: pod, projectName: projectManager.projectName)
         }
         
         // Validate working directory exists, create if needed
@@ -183,7 +183,7 @@ struct TerminalView: View {
     }
     
     private func runProject() {
-        guard let node = projectManager.selectedNode, !isRunning else {
+        guard let pod = projectManager.selectedPod, !isRunning else {
             if isRunning {
                 // Stop running process (would need to track process)
                 isRunning = false
@@ -191,14 +191,14 @@ struct TerminalView: View {
             return
         }
         
-        // Save current files before running
-        projectManager.saveCurrentNodeFiles()
+        // Save current files + YAML before running
+        projectManager.saveCurrentPodFiles()
         
         isRunning = true
-        appendOutput("\n🚀 Running project: \(node.name)\n")
+        appendOutput("\n🚀 Running Kubernetes pod: \(pod.name) (\(pod.framework.rawValue))\n")
         
         Task {
-            let output = await executeProject(node: node)
+            let output = await executeProject(pod: pod)
             await MainActor.run {
                 appendOutput(output)
                 isRunning = false
@@ -206,63 +206,75 @@ struct TerminalView: View {
         }
     }
     
-    private func executeProject(node: Node) async -> String {
-        // Get working directory
+    private func executeProject(pod: Pod) async -> String {
+        // Resolve project path — CODE lives here and is injected into the K8s pod at /app
         let workingDirectory: URL
-        if let projectPath = node.projectPath {
+        if let projectPath = pod.projectPath {
             workingDirectory = URL(fileURLWithPath: projectPath)
         } else {
-            // Fallback to node's project path from service
-            workingDirectory = projectManager.nodeProjectService.getProjectPath(for: node, projectName: projectManager.projectName)
+            workingDirectory = projectManager.podProjectService.getProjectPath(for: pod, projectName: projectManager.projectName)
         }
         
-        // Get main file from node's files or use selected file
-        let mainFile: ProjectFile
-        if let selectedFile = node.selectedFile {
-            mainFile = selectedFile
-        } else if let firstFile = node.files.first {
-            mainFile = firstFile
-        } else {
-            // Create main file path based on framework
-            let mainFilePath = node.getMainFilePath(for: node.framework)
-            let mainFileName = node.getMainFileName(for: node.framework)
-            mainFile = ProjectFile(
-                path: mainFilePath,
-                name: mainFileName,
-                content: node.code,
-                language: node.framework.primaryLanguage
-            )
+        try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        
+        // Always pull latest in-memory pod (editor may have unsaved state on selectedPod)
+        var latest = pod
+        await MainActor.run {
+            if let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }) {
+                // Merge selectedPod file edits into array first
+                if let selected = projectManager.selectedPod, selected.id == pod.id {
+                    projectManager.pods[index] = selected
+                }
+                latest = projectManager.pods[index]
+            }
         }
         
-        let mainFilePath = workingDirectory.appendingPathComponent(mainFile.path)
-        
-        // Ensure file exists
-        guard FileManager.default.fileExists(atPath: mainFilePath.path) else {
-            return "Error: Main file not found at \(mainFile.path)\nPlease save your files first.\n"
+        // Ensure main/launch file exists in the pod model
+        if latest.files.first(where: { $0.path == latest.framework.launchFile }) == nil {
+            var mutable = latest
+            let main = mutable.getOrCreateMainFile()
+            _ = main
+            latest = mutable
+            await MainActor.run {
+                if let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }) {
+                    projectManager.pods[index] = latest
+                    projectManager.selectedPod = latest
+                }
+            }
         }
         
-        // Execute based on framework
-        switch node.framework {
-        case .django, .flask, .fastapi, .purepy:
-            return await runPythonProject(node: node, workingDirectory: workingDirectory, mainFile: mainFile)
-        case .nodejs, .angular, .react, .vue, .nextjs, .express, .nestjs:
-            return await runJavaScriptProject(node: node, workingDirectory: workingDirectory, mainFile: mainFile)
-        case .swift, .swiftui:
-            return await runSwiftProject(node: node, workingDirectory: workingDirectory, mainFile: mainFile)
-        case .rust:
-            return await runRustProject(node: node, workingDirectory: workingDirectory, mainFile: mainFile)
-        case .go:
-            return await runGoProject(node: node, workingDirectory: workingDirectory, mainFile: mainFile)
-        case .java, .spring:
-            return await runJavaProject(node: node, workingDirectory: workingDirectory, mainFile: mainFile)
-        case .docker, .kubernetes, .terraform:
-            return "Infrastructure frameworks require manual deployment\n"
+        // Persist all CODE files to disk before run
+        do {
+            try await projectManager.podProjectService.saveAllFiles(pod: latest, projectPath: workingDirectory)
+        } catch {
+            return "❌ Failed to save project files: \(error.localizedDescription)\n"
         }
+        
+        var yaml = latest.kubernetesYAML
+        if yaml.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            yaml = KubernetesManifestService.generateYAML(for: latest, projectPath: workingDirectory.path)
+        }
+        
+        await MainActor.run {
+            if let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }) {
+                projectManager.pods[index].kubernetesYAML = yaml
+                projectManager.pods[index].projectPath = workingDirectory.path
+                projectManager.selectedPod = projectManager.pods[index]
+                latest = projectManager.pods[index]
+            }
+        }
+        
+        // Sync + inject files into Kubernetes (or Docker bind-mount)
+        return await KubernetesManifestService.run(
+            pod: latest,
+            yaml: yaml,
+            projectPath: workingDirectory
+        )
     }
     
-    private func runPythonProject(node: Node, workingDirectory: URL, mainFile: ProjectFile) async -> String {
+    private func runPythonProject(pod: Pod, workingDirectory: URL, mainFile: ProjectFile) async -> String {
         // Use virtual environment if available
-        if let venvPath = node.pythonEnvironmentPath {
+        if let venvPath = pod.pythonEnvironmentPath {
             let venvURL = URL(fileURLWithPath: venvPath)
             if FileManager.default.fileExists(atPath: venvURL.appendingPathComponent("bin/python3").path) {
                 let pythonPath = venvURL.appendingPathComponent("bin/python3")
@@ -280,7 +292,7 @@ struct TerminalView: View {
         }
     }
     
-    private func runJavaScriptProject(node: Node, workingDirectory: URL, mainFile: ProjectFile) async -> String {
+    private func runJavaScriptProject(pod: Pod, workingDirectory: URL, mainFile: ProjectFile) async -> String {
         // Check for package.json
         let packageJson = workingDirectory.appendingPathComponent("package.json")
         if FileManager.default.fileExists(atPath: packageJson.path) {
@@ -307,9 +319,9 @@ struct TerminalView: View {
         }
     }
     
-    private func runSwiftProject(node: Node, workingDirectory: URL, mainFile: ProjectFile) async -> String {
+    private func runSwiftProject(pod: Pod, workingDirectory: URL, mainFile: ProjectFile) async -> String {
         // Swift projects need to be compiled first
-        let executableName = "\(node.name.replacingOccurrences(of: " ", with: "_"))"
+        let executableName = "\(pod.name.replacingOccurrences(of: " ", with: "_"))"
         let compileOutput = await runCommand("swiftc \(mainFile.path) -o \(executableName)", workingDirectory: workingDirectory)
         
         if compileOutput.contains("error:") {
@@ -321,7 +333,7 @@ struct TerminalView: View {
         return compileOutput + runOutput
     }
     
-    private func runWebProject(node: Node, workingDirectory: URL, mainFile: ProjectFile) async -> String {
+    private func runWebProject(pod: Pod, workingDirectory: URL, mainFile: ProjectFile) async -> String {
         // For HTML, open in browser or start a simple server
         let htmlFile = workingDirectory.appendingPathComponent(mainFile.path)
         if FileManager.default.fileExists(atPath: htmlFile.path) {
@@ -333,17 +345,17 @@ struct TerminalView: View {
         }
     }
     
-    private func runRustProject(node: Node, workingDirectory: URL, mainFile: ProjectFile) async -> String {
+    private func runRustProject(pod: Pod, workingDirectory: URL, mainFile: ProjectFile) async -> String {
         // Rust projects use cargo
         return await runCommand("cargo run", workingDirectory: workingDirectory)
     }
     
-    private func runGoProject(node: Node, workingDirectory: URL, mainFile: ProjectFile) async -> String {
+    private func runGoProject(pod: Pod, workingDirectory: URL, mainFile: ProjectFile) async -> String {
         // Go projects use go run
         return await runCommand("go run \(mainFile.path)", workingDirectory: workingDirectory)
     }
     
-    private func runJavaProject(node: Node, workingDirectory: URL, mainFile: ProjectFile) async -> String {
+    private func runJavaProject(pod: Pod, workingDirectory: URL, mainFile: ProjectFile) async -> String {
         // Java projects use Maven
         return await runCommand("mvn exec:java", workingDirectory: workingDirectory)
     }

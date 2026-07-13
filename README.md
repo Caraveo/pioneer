@@ -2,7 +2,8 @@
 
 ![Pioneer Icon](Pioneer.png)
 
-**A Visual, Node-Based AI Code Editor and Systems Architect Tool**
+**Design systems. Generate code. Ship pods.**  
+A macOS-native, visual AI platform for building entire software stacks—from mobile apps to databases to Kubernetes.
 
 [![macOS](https://img.shields.io/badge/platform-macOS-blue.svg)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-5.9-orange.svg)](https://swift.org/)
@@ -10,11 +11,38 @@
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/Caraveo/pioneer/releases)
 [![Status](https://img.shields.io/badge/status-PREALPHA-red.svg)](https://github.com/Caraveo/pioneer)
 
+## Vision
+
+**Software is no longer one app. It’s a constellation.**  
+Mobile clients, APIs, data stores, cloud glue, and the teams that own them. Traditional tools force you to juggle IDEs, terminals, YAML, and repos as if they were separate universes. Pioneer collapses that chaos into one canvas—where every piece of your product is a **Pod**: visible, connected, and ready to run.
+
+### Why Pioneer exists
+
+Modern product teams don’t ship “a codebase.” They ship **systems**—iOS next to Android, Python services next to Postgres, web frontends next to infra. Scale demands clarity: Android, Apple, and Web teams need boundaries they can own without drowning in monorepo politics. Pioneer was built on a simple bet: **if architecture is visual, generation is intelligent, and every unit of work has its own code, container, and git history, software becomes navigable again.**
+
+### What Pioneer is
+
+Pioneer is a **visual systems architect and AI code studio for macOS**. You design your product as interconnected pods—Services, Databases, iOS, Android, macOS, AWS, and more—each with a deliberate framework (Python by default for services, PostgreSQL for databases, SwiftUI for Apple, Kotlin for Android, and the rest of a modern stack). One prompt can write **application code and Kubernetes YAML together**, grounded in the selected pod’s language and context. One click runs that pod. One **GIT** view owns that pod’s repository. One canvas tells the story of the whole system.
+
+### How Pioneer works
+
+1. **Compose** — Drop pods on the canvas. Connect them. Choose type and framework; Pioneer assumes the right stack so you stay in the flow.  
+2. **Generate** — Ask AI in plain language. It generates for *that* pod only—proper syntax, full pod context, dual artifacts: **CODE** and **YAML**.  
+3. **Craft** — Switch views: **PODS** for architecture, **CODE** for source, **YAML** for the K8s pod, **GIT** for branches, commits, and push to origin.  
+4. **Run** — Each Pioneer pod maps to its **own Kubernetes Pod**. Code is injected into the container and executed where it belongs.  
+5. **Scale** — Each pod is its **own git repository**, so teams grow independently: Apple ships Apple, Android ships Android, Web ships Web—without waiting on a single monorepo.
+
+### The promise
+
+Pioneer is not “another editor with a chatbot.” It’s a **prompt-based infrastructure and product canvas**: architecture you can see, code you can trust, containers you can run, and repos you can own. From first service to full fleet—**you pioneer the system; Pioneer handles the scaffolding.**
+
+---
+
 ## 🚀 What Pioneer Does
 
-**Pioneer is a revolutionary visual development platform that manages your entire software stack using AI Models and Visual Nodes.**
+**Pioneer is a visual development platform that manages your entire software stack with AI models and visual pods.**
 
-Pioneer empowers developers to build, manage, and deploy complete software systems—from iOS apps to AWS infrastructure—all through an intuitive visual interface. Whether you're building native applications, frontend interfaces, backend services, databases, or cloud infrastructure, Pioneer provides a unified environment where every component is represented as an interconnected node.
+Pioneer empowers developers to build, manage, and deploy complete software systems—from iOS apps to AWS infrastructure—all through an intuitive visual interface. Whether you're building native applications, frontend interfaces, backend services, databases, or cloud infrastructure, Pioneer provides a unified environment where every component is represented as an interconnected **pod**.
 
 ### Key Capabilities:
 
@@ -61,23 +89,6 @@ Pioneer empowers developers to build, manage, and deploy complete software syste
 > - Understanding of Swift/SwiftUI development for troubleshooting
 
 Pioneer is a revolutionary macOS-native application that reimagines software development through visual, node-based architecture. Built entirely with SwiftUI, Pioneer enables developers to visually design, generate, and deploy entire software systems—from mobile apps to cloud infrastructure—all in one unified interface.
-
-## 🎯 Vision
-
-Pioneer is designed to become the **ultimate visual development environment** where:
-
-- **Visual Architecture**: Design entire software systems as interconnected nodes, where each node represents a component, service, or module
-- **AI-Powered Generation**: Leverage AI to automatically generate production-ready code for any node based on natural language prompts
-- **Multi-Platform Support**: Generate and deploy to multiple platforms simultaneously:
-  - Native macOS applications
-  - iOS/iPadOS applications
-  - Web applications and websites
-  - Cloud infrastructure (AWS, Azure, GCP)
-  - Containerized services (Docker, Kubernetes)
-- **Intelligent Scaffolding**: Automatically scaffold entire project structures, configurations, and deployment pipelines
-- **Real-Time Collaboration**: Multiple developers can work on the same visual architecture simultaneously
-- **Version Control Integration**: Track changes to your visual architecture with Git integration
-- **Live Preview**: See your applications running in real-time as you design them
 
 ## ✨ Current Features
 

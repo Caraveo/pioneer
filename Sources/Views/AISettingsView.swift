@@ -25,7 +25,19 @@ struct AISettingsView: View {
                         loadModels()
                     }
                     
-                    if aiService.configuration.selectedProvider.requiresAPIKey {
+                    if aiService.configuration.selectedProvider == .grok {
+                        let installed = LLMService.isGrokCLIInstalled(configuredPath: aiService.configuration.grokCLIPath)
+                        HStack(spacing: 6) {
+                            Image(systemName: installed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundColor(installed ? .green : .orange)
+                            Text(installed
+                                 ? "Grok CLI detected — generation uses your logged-in grok session"
+                                 : "Grok CLI not found. Install Grok and run `grok login`.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.top, 4)
+                    } else if aiService.configuration.selectedProvider.requiresAPIKey {
                         Text("API Key required")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -114,6 +126,24 @@ struct AISettingsView: View {
                             .textFieldStyle(.roundedBorder)
                             .padding(.top, 4)
                     }
+                    
+                    if aiService.configuration.selectedProvider == .grok {
+                        TextField("Model (e.g. grok-4.5)", text: $aiService.configuration.grokModel)
+                            .textFieldStyle(.roundedBorder)
+                            .padding(.top, 4)
+                            .onChange(of: aiService.configuration.grokModel) { newValue in
+                                if aiService.configuration.selectedModel.isEmpty {
+                                    aiService.configuration.selectedModel = newValue
+                                }
+                            }
+                        
+                        TextField("Optional grok binary path", text: $aiService.configuration.grokCLIPath)
+                            .textFieldStyle(.roundedBorder)
+                            .padding(.top, 4)
+                        Text("Leave blank to auto-detect ~/.grok/bin/grok")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
                 } header: {
                     Text("Model")
                 }
@@ -145,7 +175,7 @@ struct AISettingsView: View {
                     
                     Toggle("Use Context", isOn: $aiService.configuration.useContext)
                         .padding(.vertical, 4)
-                    Toggle("Include Node Connections", isOn: $aiService.configuration.includeNodeConnections)
+                    Toggle("Include Pod Connections", isOn: $aiService.configuration.includePodConnections)
                         .padding(.vertical, 4)
                 } header: {
                     Text("Generation Settings")

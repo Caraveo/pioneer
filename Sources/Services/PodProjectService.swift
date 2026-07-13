@@ -1,7 +1,7 @@
 import Foundation
 import AppKit
 
-class NodeProjectService {
+class PodProjectService {
     private let projectSettings = ProjectSettings.shared
     
     init() {
@@ -10,47 +10,51 @@ class NodeProjectService {
         try? FileManager.default.createDirectory(at: URL(fileURLWithPath: basePath), withIntermediateDirectories: true)
     }
     
-    /// Get the project directory path for a node
-    func getProjectPath(for node: Node, projectName: String? = nil) -> URL {
+    /// Get the project directory path for a pod
+    func getProjectPath(for pod: Pod, projectName: String? = nil) -> URL {
         // Use project name from ProjectManager if available, otherwise use "Untitled Project"
         let projectName = projectName ?? "Untitled Project"
-        return projectSettings.getProjectPath(projectName: projectName, nodeId: node.id)
+        return projectSettings.getProjectPath(projectName: projectName, podId: pod.id)
     }
     
-    /// Create project structure for a node
-    func createProjectStructure(for node: Node, projectName: String? = nil) async throws {
-        let projectPath = getProjectPath(for: node, projectName: projectName)
+    /// Create project structure for a pod
+    func createProjectStructure(for pod: Pod, projectName: String? = nil) async throws {
+        let projectPath = getProjectPath(for: pod, projectName: projectName)
         
         // Create project directory
         try FileManager.default.createDirectory(at: projectPath, withIntermediateDirectories: true)
         
         // Create framework-specific project structure
-        switch node.framework {
+        switch pod.framework {
         case .django, .flask, .fastapi, .purepy:
-            try await createPythonProjectStructure(node: node, projectPath: projectPath)
-        case .swift, .swiftui:
-            try await createSwiftProjectStructure(node: node, projectPath: projectPath)
-        case .nodejs, .express, .nestjs:
-            try await createJavaScriptProjectStructure(node: node, projectPath: projectPath)
+            try await createPythonProjectStructure(pod: pod, projectPath: projectPath)
+        case .swift, .swiftui, .objectiveC:
+            try await createSwiftProjectStructure(pod: pod, projectPath: projectPath)
+        case .nodejs, .express, .nestjs, .reactNative:
+            try await createJavaScriptProjectStructure(pod: pod, projectPath: projectPath)
         case .angular, .react, .vue, .nextjs:
-            try await createFrontendProjectStructure(node: node, projectPath: projectPath)
+            try await createFrontendProjectStructure(pod: pod, projectPath: projectPath)
         case .rust:
-            try await createRustProjectStructure(node: node, projectPath: projectPath)
+            try await createRustProjectStructure(pod: pod, projectPath: projectPath)
         case .go:
-            try await createGoProjectStructure(node: node, projectPath: projectPath)
+            try await createGoProjectStructure(pod: pod, projectPath: projectPath)
         case .java, .spring:
-            try await createJavaProjectStructure(node: node, projectPath: projectPath)
+            try await createJavaProjectStructure(pod: pod, projectPath: projectPath)
+        case .kotlin, .jetpackCompose, .androidJava, .flutter:
+            try await createBasicProjectStructure(pod: pod, projectPath: projectPath)
         case .docker, .kubernetes, .terraform:
-            try await createBasicProjectStructure(node: node, projectPath: projectPath)
+            try await createBasicProjectStructure(pod: pod, projectPath: projectPath)
+        case .postgresql, .mysql, .mongodb, .redis, .sqlite:
+            try await createBasicProjectStructure(pod: pod, projectPath: projectPath)
         }
         
-        // Save all files in the node's codebase
-        try await saveAllFiles(node: node, projectPath: projectPath)
+        // Save all files in the pod's codebase
+        try await saveAllFiles(pod: pod, projectPath: projectPath)
     }
     
-    /// Save all files in a node's codebase
-    func saveAllFiles(node: Node, projectPath: URL) async throws {
-        for file in node.files {
+    /// Save all files in a pod's codebase
+    func saveAllFiles(pod: Pod, projectPath: URL) async throws {
+        for file in pod.files {
             let fileURL = projectPath.appendingPathComponent(file.path)
             let directory = fileURL.deletingLastPathComponent()
             
@@ -59,7 +63,7 @@ class NodeProjectService {
         }
     }
     
-    private func createPythonProjectStructure(node: Node, projectPath: URL) async throws {
+    private func createPythonProjectStructure(pod: Pod, projectPath: URL) async throws {
         // Create standard Python project structure
         let srcDir = projectPath.appendingPathComponent("src")
         let testsDir = projectPath.appendingPathComponent("tests")
@@ -74,15 +78,15 @@ class NodeProjectService {
         try "".write(to: testsDir.appendingPathComponent("__init__.py"), atomically: true, encoding: .utf8)
         
         // Create requirements.txt if not empty
-        if !node.pythonRequirements.isEmpty {
-            try node.pythonRequirements.write(to: projectPath.appendingPathComponent("requirements.txt"), atomically: true, encoding: .utf8)
+        if !pod.pythonRequirements.isEmpty {
+            try pod.pythonRequirements.write(to: projectPath.appendingPathComponent("requirements.txt"), atomically: true, encoding: .utf8)
         }
         
         // Create README.md
         let readme = """
-        # \(node.name)
+        # \(pod.name)
         
-        \(node.type.rawValue) project
+        \(pod.type.rawValue) project
         
         ## Setup
         
@@ -121,7 +125,7 @@ class NodeProjectService {
         try gitignore.write(to: projectPath.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
     }
     
-    private func createSwiftProjectStructure(node: Node, projectPath: URL) async throws {
+    private func createSwiftProjectStructure(pod: Pod, projectPath: URL) async throws {
         // Create Swift project structure
         let sourcesDir = projectPath.appendingPathComponent("Sources")
         let testsDir = projectPath.appendingPathComponent("Tests")
@@ -135,20 +139,20 @@ class NodeProjectService {
         import PackageDescription
         
         let package = Package(
-            name: "\(node.projectDirectoryName)",
+            name: "\(pod.projectDirectoryName)",
             platforms: [
                 .macOS(.v13),
                 .iOS(.v16)
             ],
             products: [
                 .executable(
-                    name: "\(node.projectDirectoryName)",
-                    targets: ["\(node.projectDirectoryName)"]
+                    name: "\(pod.projectDirectoryName)",
+                    targets: ["\(pod.projectDirectoryName)"]
                 )
             ],
             targets: [
                 .executableTarget(
-                    name: "\(node.projectDirectoryName)",
+                    name: "\(pod.projectDirectoryName)",
                     path: "Sources"
                 )
             ]
@@ -158,9 +162,9 @@ class NodeProjectService {
         
         // Create README.md
         let readme = """
-        # \(node.name)
+        # \(pod.name)
         
-        \(node.type.rawValue) project
+        \(pod.type.rawValue) project
         
         ## Build
         
@@ -177,7 +181,7 @@ class NodeProjectService {
         try readme.write(to: projectPath.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
     }
     
-    private func createJavaScriptProjectStructure(node: Node, projectPath: URL) async throws {
+    private func createJavaScriptProjectStructure(pod: Pod, projectPath: URL) async throws {
         // Create Node.js/TypeScript project structure
         let srcDir = projectPath.appendingPathComponent("src")
         let distDir = projectPath.appendingPathComponent("dist")
@@ -189,14 +193,14 @@ class NodeProjectService {
         let nodeVersion = await getNodeVersion()
         
         // Create package.json with Volta configuration
-        let isTypeScript = [.angular, .nestjs, .nextjs].contains(node.framework) || node.framework.primaryLanguage == .typescript
+        let isTypeScript = [.angular, .nestjs, .nextjs].contains(pod.framework) || pod.framework.primaryLanguage == .typescript
         var packageJson: [String: Any] = [
-            "name": node.projectDirectoryName.lowercased(),
+            "name": pod.projectDirectoryName.lowercased(),
             "version": "1.0.0",
-            "description": node.name,
+            "description": pod.name,
             "main": "src/index.\(isTypeScript ? "ts" : "js")",
             "scripts": [
-                "start": isTypeScript ? "ts-node src/index.ts" : "node src/index.js",
+                "start": isTypeScript ? "ts-pod src/index.ts" : "pod src/index.js",
                 "build": isTypeScript ? "tsc" : "echo 'No build step needed'"
             ],
             "keywords": [],
@@ -207,7 +211,7 @@ class NodeProjectService {
         // Add Volta configuration to package.json
         if !nodeVersion.isEmpty {
             packageJson["volta"] = [
-                "node": nodeVersion
+                "pod": nodeVersion
             ] as [String: Any]
         }
         
@@ -263,7 +267,7 @@ class NodeProjectService {
                 // First try to get version from Volta
                 let voltaProcess = Process()
                 voltaProcess.executableURL = URL(fileURLWithPath: "/bin/bash")
-                voltaProcess.arguments = ["-c", "volta list node 2>/dev/null | head -1 | awk '{print $2}' || echo ''"]
+                voltaProcess.arguments = ["-c", "volta list pod 2>/dev/null | head -1 | awk '{print $2}' || echo ''"]
                 
                 let voltaPipe = Pipe()
                 voltaProcess.standardOutput = voltaPipe
@@ -280,7 +284,7 @@ class NodeProjectService {
                         return
                     }
                 } catch {
-                    // Volta not available, fall through to system node
+                    // Volta not available, fall through to system pod
                 }
                 
                 // Fallback to system Node.js version
@@ -297,10 +301,10 @@ class NodeProjectService {
                     nodeProcess.waitUntilExit()
                     
                     if nodeProcess.terminationStatus == 0 {
-                        // Node is installed, get version
+                        // Pod is installed, get version
                         let versionProcess = Process()
                         versionProcess.executableURL = URL(fileURLWithPath: "/bin/bash")
-                        versionProcess.arguments = ["-c", "node --version | sed 's/v//'"]
+                        versionProcess.arguments = ["-c", "pod --version | sed 's/v//'"]
                         
                         let versionPipe = Pipe()
                         versionProcess.standardOutput = versionPipe
@@ -316,7 +320,7 @@ class NodeProjectService {
                         }
                     }
                 } catch {
-                    // Node not found
+                    // Pod not found
                 }
                 
                 // Default to latest LTS if nothing found
@@ -331,7 +335,7 @@ class NodeProjectService {
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/bin/bash")
-                process.arguments = ["-c", "cd '\(projectPath.path)' && volta pin node@\(version)"]
+                process.arguments = ["-c", "cd '\(projectPath.path)' && volta pin pod@\(version)"]
                 process.standardOutput = Pipe()
                 process.standardError = Pipe()
                 
@@ -347,7 +351,7 @@ class NodeProjectService {
         }
     }
     
-    private func createWebProjectStructure(node: Node, projectPath: URL) async throws {
+    private func createWebProjectStructure(pod: Pod, projectPath: URL) async throws {
         // Create web project structure
         let cssDir = projectPath.appendingPathComponent("css")
         let jsDir = projectPath.appendingPathComponent("js")
@@ -365,11 +369,11 @@ class NodeProjectService {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>\(node.name)</title>
+                <title>\(pod.name)</title>
                 <link rel="stylesheet" href="css/style.css">
             </head>
             <body>
-                <h1>\(node.name)</h1>
+                <h1>\(pod.name)</h1>
                 <script src="js/script.js"></script>
             </body>
             </html>
@@ -378,27 +382,27 @@ class NodeProjectService {
         }
     }
     
-    private func createBasicProjectStructure(node: Node, projectPath: URL) async throws {
+    private func createBasicProjectStructure(pod: Pod, projectPath: URL) async throws {
         // Create basic structure for other languages
         let srcDir = projectPath.appendingPathComponent("src")
         try FileManager.default.createDirectory(at: srcDir, withIntermediateDirectories: true)
         
         // Create README.md
         let readme = """
-        # \(node.name)
+        # \(pod.name)
         
-        \(node.type.rawValue) project
+        \(pod.type.rawValue) project
         
-        Framework: \(node.framework.rawValue)
+        Framework: \(pod.framework.rawValue)
         """
         try readme.write(to: projectPath.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
     }
     
-    private func createRustProjectStructure(node: Node, projectPath: URL) async throws {
+    private func createRustProjectStructure(pod: Pod, projectPath: URL) async throws {
         // Create Cargo.toml
         let cargoToml = """
         [package]
-        name = "\(node.projectDirectoryName.lowercased())"
+        name = "\(pod.projectDirectoryName.lowercased())"
         version = "1.0.0"
         edition = "2021"
         
@@ -412,7 +416,7 @@ class NodeProjectService {
         
         // Create README.md
         let readme = """
-        # \(node.name)
+        # \(pod.name)
         
         Rust project
         
@@ -429,10 +433,10 @@ class NodeProjectService {
         try readme.write(to: projectPath.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
     }
     
-    private func createGoProjectStructure(node: Node, projectPath: URL) async throws {
+    private func createGoProjectStructure(pod: Pod, projectPath: URL) async throws {
         // Create go.mod
         let goMod = """
-        module \(node.projectDirectoryName.lowercased())
+        module \(pod.projectDirectoryName.lowercased())
         
         go 1.21
         """
@@ -440,7 +444,7 @@ class NodeProjectService {
         
         // Create README.md
         let readme = """
-        # \(node.name)
+        # \(pod.name)
         
         Go project
         
@@ -457,7 +461,7 @@ class NodeProjectService {
         try readme.write(to: projectPath.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
     }
     
-    private func createJavaProjectStructure(node: Node, projectPath: URL) async throws {
+    private func createJavaProjectStructure(pod: Pod, projectPath: URL) async throws {
         // Create Maven structure
         let srcMainJava = projectPath.appendingPathComponent("src/main/java")
         let srcTestJava = projectPath.appendingPathComponent("src/test/java")
@@ -475,7 +479,7 @@ class NodeProjectService {
             <modelVersion>4.0.0</modelVersion>
             
             <groupId>com.example</groupId>
-            <artifactId>\(node.projectDirectoryName.lowercased())</artifactId>
+            <artifactId>\(pod.projectDirectoryName.lowercased())</artifactId>
             <version>1.0.0</version>
             
             <properties>
@@ -488,7 +492,7 @@ class NodeProjectService {
         
         // Create README.md
         let readme = """
-        # \(node.name)
+        # \(pod.name)
         
         Java project
         
@@ -505,7 +509,7 @@ class NodeProjectService {
         try readme.write(to: projectPath.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
     }
     
-    private func createFrontendProjectStructure(node: Node, projectPath: URL) async throws {
+    private func createFrontendProjectStructure(pod: Pod, projectPath: URL) async throws {
         // Create frontend project structure (React, Vue, Angular, Next.js)
         let srcDir = projectPath.appendingPathComponent("src")
         let publicDir = projectPath.appendingPathComponent("public")
@@ -518,9 +522,9 @@ class NodeProjectService {
         
         // Create package.json
         var packageJson: [String: Any] = [
-            "name": node.projectDirectoryName.lowercased(),
+            "name": pod.projectDirectoryName.lowercased(),
             "version": "1.0.0",
-            "description": node.name,
+            "description": pod.name,
             "scripts": [
                 "dev": "next dev",
                 "build": "next build",
@@ -532,7 +536,7 @@ class NodeProjectService {
         ]
         
         // Add framework-specific dependencies
-        switch node.framework {
+        switch pod.framework {
         case .react:
             packageJson["dependencies"] = [
                 "react": "^18.2.0",
@@ -558,7 +562,7 @@ class NodeProjectService {
         // Add Volta configuration
         if !nodeVersion.isEmpty {
             packageJson["volta"] = [
-                "node": nodeVersion
+                "pod": nodeVersion
             ] as [String: Any]
         }
         
@@ -582,15 +586,15 @@ class NodeProjectService {
         try gitignore.write(to: projectPath.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
     }
     
-    func saveMainCodeFile(node: Node, projectPath: URL) async throws {
-        // Use the node's main file path
-        let mainPath = node.getMainFilePath(for: node.framework)
+    func saveMainCodeFile(pod: Pod, projectPath: URL) async throws {
+        // Use the pod's main file path
+        let mainPath = pod.getMainFilePath(for: pod.framework)
         
-        // Find the main file in the node's files
-        guard let mainFile = node.files.first(where: { $0.path == mainPath }) else {
+        // Find the main file in the pod's files
+        guard let mainFile = pod.files.first(where: { $0.path == mainPath }) else {
             // Create main file if it doesn't exist
-            var newNode = node
-            let createdFile = newNode.getOrCreateMainFile()
+            var newPod = pod
+            let createdFile = newPod.getOrCreateMainFile()
             let fileURL = projectPath.appendingPathComponent(createdFile.path)
             let directory = fileURL.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -605,9 +609,9 @@ class NodeProjectService {
         try mainFile.content.write(to: fileURL, atomically: true, encoding: .utf8)
     }
     
-    /// Get project files for a node
-    func getProjectFiles(for node: Node) -> [URL] {
-        guard let projectPath = node.projectPath else {
+    /// Get project files for a pod
+    func getProjectFiles(for pod: Pod) -> [URL] {
+        guard let projectPath = pod.projectPath else {
             return []
         }
         let url = URL(fileURLWithPath: projectPath)
@@ -629,8 +633,8 @@ class NodeProjectService {
     }
     
     /// Delete a file from the project directory
-    func deleteFile(node: Node, file: ProjectFile) async throws {
-        guard let projectPath = node.projectPath else {
+    func deleteFile(pod: Pod, file: ProjectFile) async throws {
+        guard let projectPath = pod.projectPath else {
             return
         }
         let url = URL(fileURLWithPath: projectPath)
@@ -644,8 +648,8 @@ class NodeProjectService {
     }
     
     /// Open project in Finder
-    func openProjectInFinder(for node: Node, projectName: String? = nil) {
-        let projectPath = getProjectPath(for: node, projectName: projectName)
+    func openProjectInFinder(for pod: Pod, projectName: String? = nil) {
+        let projectPath = getProjectPath(for: pod, projectName: projectName)
         NSWorkspace.shared.open(projectPath)
     }
 }

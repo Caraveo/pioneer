@@ -4,55 +4,59 @@ import Combine
 import AppKit
 
 enum ViewMode: String, CaseIterable {
-    case nodeCanvas = "NODES"
-    case editor = "EDITOR"
+    case podCanvas = "PODS"
+    case code = "CODE"
+    case yaml = "YAML"
+    case git = "GIT"
     
     var icon: String {
         switch self {
-        case .nodeCanvas: return "square.grid.2x2"
-        case .editor: return "doc.text"
+        case .podCanvas: return "square.grid.2x2"
+        case .code: return "chevron.left.forwardslash.chevron.right"
+        case .yaml: return "shippingbox"
+        case .git: return "arrow.triangle.branch"
         }
     }
 }
 
 @MainActor
 class ProjectManager: ObservableObject {
-    @Published var nodes: [Node] = []
-    @Published var selectedNode: Node?
+    @Published var pods: [Pod] = []
+    @Published var selectedPod: Pod?
     @Published var canvasOffset: CGSize = .zero
     @Published var canvasScale: CGFloat = 1.0
-    @Published var connectingFromNodeId: UUID?
-    @Published var hoveredConnectionPoint: (nodeId: UUID, isOutput: Bool)?
-    @Published var viewMode: ViewMode = .nodeCanvas
+    @Published var connectingFromPodId: UUID?
+    @Published var hoveredConnectionPoint: (podId: UUID, isOutput: Bool)?
+    @Published var viewMode: ViewMode = .podCanvas
     
     private let pythonBridge = PythonBridge()
-    let nodeProjectService = NodeProjectService()
+    let podProjectService = PodProjectService()
     @Published var aiService = AIService()
     @Published var currentProjectPath: URL?
     @Published var projectName: String = "Untitled Project"
     
     init() {
-        // Create a default node for demonstration
-        createDefaultNodes()
+        // Create a default pod for demonstration
+        createDefaultPods()
     }
     
     // MARK: - Project Save/Load
     
     func saveProject(to url: URL) async throws {
-        // First, save all node files to disk to ensure they're up to date
+        // First, save all pod files to disk to ensure they're up to date
         // Capture values needed for async operations
-        let nodesToSave = nodes
+        let podsToSave = pods
         let currentProjectName = projectName
-        let service = nodeProjectService
+        let service = podProjectService
         let currentCanvasOffset = canvasOffset
         let currentCanvasScale = canvasScale
         
         // Use async/await to save all files concurrently
         try await withThrowingTaskGroup(of: Void.self) { group in
-            for node in nodesToSave {
+            for pod in podsToSave {
                 group.addTask {
-                    let projectPath = service.getProjectPath(for: node, projectName: currentProjectName)
-                    try await service.saveAllFiles(node: node, projectPath: projectPath)
+                    let projectPath = service.getProjectPath(for: pod, projectName: currentProjectName)
+                    try await service.saveAllFiles(pod: pod, projectPath: projectPath)
                 }
             }
             
@@ -72,7 +76,7 @@ class ProjectManager: ObservableObject {
             
             // Save project metadata
             let project = PioneerProject(
-                nodes: nodesToSave,
+                pods: podsToSave,
                 canvasOffset: currentCanvasOffset,
                 canvasScale: currentCanvasScale
             )
@@ -84,22 +88,22 @@ class ProjectManager: ObservableObject {
             let projectFile = tempDir.appendingPathComponent("project.json")
             try projectData.write(to: projectFile)
             
-            // Copy all code files from all nodes (excluding environments)
+            // Copy all code files from all pods (excluding environments)
             let codeDir = tempDir.appendingPathComponent("code")
             try FileManager.default.createDirectory(at: codeDir, withIntermediateDirectories: true)
             
-            for node in nodesToSave {
-                // Get the node's project path
-                let nodeProjectPath = service.getProjectPath(for: node, projectName: currentProjectName)
+            for pod in podsToSave {
+                // Get the pod's project path
+                let podProjectPath = service.getProjectPath(for: pod, projectName: currentProjectName)
                 
-                // Copy all files from the node's project directory, excluding environments
-                if FileManager.default.fileExists(atPath: nodeProjectPath.path) {
-                    let nodeCodeDir = codeDir.appendingPathComponent(node.id.uuidString)
-                    try FileManager.default.createDirectory(at: nodeCodeDir, withIntermediateDirectories: true)
+                // Copy all files from the pod's project directory, excluding environments
+                if FileManager.default.fileExists(atPath: podProjectPath.path) {
+                    let podCodeDir = codeDir.appendingPathComponent(pod.id.uuidString)
+                    try FileManager.default.createDirectory(at: podCodeDir, withIntermediateDirectories: true)
                     
-                    try self.copyNodeFiles(
-                        from: nodeProjectPath,
-                        to: nodeCodeDir,
+                    try self.copyPodFiles(
+                        from: podProjectPath,
+                        to: podCodeDir,
                         excluding: [
                             "node_modules",
                             ".venv",
@@ -136,8 +140,8 @@ class ProjectManager: ObservableObject {
         }
     }
     
-    /// Copy node files excluding environment directories
-    nonisolated private func copyNodeFiles(from source: URL, to destination: URL, excluding: [String]) throws {
+    /// Copy pod files excluding environment directories
+    nonisolated private func copyPodFiles(from source: URL, to destination: URL, excluding: [String]) throws {
         let fileManager = FileManager.default
         guard let enumerator = fileManager.enumerator(
             at: source,
@@ -247,37 +251,37 @@ class ProjectManager: ObservableObject {
         let decoder = JSONDecoder()
         let project = try decoder.decode(PioneerProject.self, from: data)
         
-        nodes = project.nodes
+        pods = project.pods
         canvasOffset = project.canvasOffset
         canvasScale = project.canvasScale
         currentProjectPath = url
         projectName = url.deletingPathExtension().lastPathComponent
         
-        // Restore code files for all nodes
+        // Restore code files for all pods
         let codeDir = tempDir.appendingPathComponent("code")
         if FileManager.default.fileExists(atPath: codeDir.path) {
-            for node in nodes {
-                let nodeCodeDir = codeDir.appendingPathComponent(node.id.uuidString)
-                if FileManager.default.fileExists(atPath: nodeCodeDir.path) {
-                    // Get the node's project path
-                    let nodeProjectPath = nodeProjectService.getProjectPath(for: node, projectName: projectName)
+            for pod in pods {
+                let podCodeDir = codeDir.appendingPathComponent(pod.id.uuidString)
+                if FileManager.default.fileExists(atPath: podCodeDir.path) {
+                    // Get the pod's project path
+                    let podProjectPath = podProjectService.getProjectPath(for: pod, projectName: projectName)
                     
-                    // Copy files back to node's project directory
-                    try restoreNodeFiles(from: nodeCodeDir, to: nodeProjectPath)
+                    // Copy files back to pod's project directory
+                    try restorePodFiles(from: podCodeDir, to: podProjectPath)
                 }
             }
         }
         
-        // Initialize projects for all loaded nodes (this will recreate environments if needed)
+        // Initialize projects for all loaded pods (this will recreate environments if needed)
         Task {
-            for node in nodes {
-                await initializeNodeProject(node: node)
+            for pod in pods {
+                await initializePodProject(pod: pod)
             }
         }
     }
     
-    /// Restore node files from archive to project directory
-    private func restoreNodeFiles(from source: URL, to destination: URL) throws {
+    /// Restore pod files from archive to project directory
+    private func restorePodFiles(from source: URL, to destination: URL) throws {
         let fileManager = FileManager.default
         
         // Create destination directory if it doesn't exist
@@ -352,151 +356,180 @@ class ProjectManager: ObservableObject {
     }
     
     func newProject() {
-        nodes = []
+        pods = []
         canvasOffset = .zero
         canvasScale = 1.0
-        selectedNode = nil
+        selectedPod = nil
         currentProjectPath = nil
         projectName = "Untitled Project"
         
-        // Create a default node
-        createDefaultNodes()
+        // Create a default pod
+        createDefaultPods()
     }
     
-    func createDefaultNodes() {
-        var defaultNode = Node(
-            name: "Example iPhone App",
-            type: .iPhoneApp,
+    func createDefaultPods() {
+        var defaultPod = Pod(
+            name: "Example Service",
+            type: .service,
             position: CGPoint(x: 100, y: 100),
             code: "",
-            framework: .swiftui
+            framework: .purepy
         )
         
         // Ensure main file exists
-        let mainFile = defaultNode.getOrCreateMainFile()
-        defaultNode.selectedFileId = mainFile.id
+        let mainFile = defaultPod.getOrCreateMainFile()
+        defaultPod.selectedFileId = mainFile.id
         
-        nodes.append(defaultNode)
+        pods.append(defaultPod)
         
-        // Immediately create the directory for the default node
-        let nodeProjectPath = nodeProjectService.getProjectPath(for: defaultNode, projectName: projectName)
+        // Immediately create the directory for the default pod
+        let podProjectPath = podProjectService.getProjectPath(for: defaultPod, projectName: projectName)
         do {
-            try FileManager.default.createDirectory(at: nodeProjectPath, withIntermediateDirectories: true)
-            // Update node with project path immediately
-            if let index = nodes.firstIndex(where: { $0.id == defaultNode.id }) {
-                nodes[index].projectPath = nodeProjectPath.path
+            try FileManager.default.createDirectory(at: podProjectPath, withIntermediateDirectories: true)
+            // Update pod with project path immediately
+            if let index = pods.firstIndex(where: { $0.id == defaultPod.id }) {
+                pods[index].projectPath = podProjectPath.path
             }
         } catch {
-            print("Failed to create default node directory: \(error)")
+            print("Failed to create default pod directory: \(error)")
         }
         
-        // Initialize project for default node
+        // Initialize project for default pod
         Task {
-            await initializeNodeProject(node: defaultNode)
+            await initializePodProject(pod: defaultPod)
         }
     }
     
-    func createNewNode() {
-        var newNode = Node(
-            name: "New Node \(nodes.count + 1)",
-            type: .custom,
+    func createNewPod() {
+        var newPod = Pod(
+            name: "New Pod \(pods.count + 1)",
+            type: .service,
             position: CGPoint(
-                x: 200 + CGFloat(nodes.count) * 50,
-                y: 200 + CGFloat(nodes.count) * 50
+                x: 200 + CGFloat(pods.count) * 50,
+                y: 200 + CGFloat(pods.count) * 50
             ),
             code: "",
-            framework: .swift
+            framework: .purepy
         )
         
         // Get or create main file
-        let mainFile = newNode.getOrCreateMainFile()
-        newNode.selectedFileId = mainFile.id
+        let mainFile = newPod.getOrCreateMainFile()
+        newPod.selectedFileId = mainFile.id
         
-        nodes.append(newNode)
-        selectedNode = newNode
+        pods.append(newPod)
+        selectedPod = newPod
         
-        // Immediately create the directory for the node
-        let nodeProjectPath = nodeProjectService.getProjectPath(for: newNode, projectName: projectName)
+        // Immediately create the directory for the pod
+        let podProjectPath = podProjectService.getProjectPath(for: newPod, projectName: projectName)
         do {
-            try FileManager.default.createDirectory(at: nodeProjectPath, withIntermediateDirectories: true)
-            // Update node with project path immediately
-            if let index = nodes.firstIndex(where: { $0.id == newNode.id }) {
-                nodes[index].projectPath = nodeProjectPath.path
-                selectedNode = nodes[index]
+            try FileManager.default.createDirectory(at: podProjectPath, withIntermediateDirectories: true)
+            // Update pod with project path immediately
+            if let index = pods.firstIndex(where: { $0.id == newPod.id }) {
+                pods[index].projectPath = podProjectPath.path
+                selectedPod = pods[index]
             }
         } catch {
-            print("Failed to create node directory: \(error)")
+            print("Failed to create pod directory: \(error)")
         }
         
-        // Create project structure for the node
+        // Create project structure for the pod
         Task {
-            await initializeNodeProject(node: newNode)
+            await initializePodProject(pod: newPod)
         }
     }
     
-            private func initializeNodeProject(node: Node) async {
+            private func initializePodProject(pod: Pod) async {
                 do {
                     // Create project structure (can be done off main thread)
-                    try await nodeProjectService.createProjectStructure(for: node, projectName: projectName)
+                    try await podProjectService.createProjectStructure(for: pod, projectName: projectName)
                     
                     // Get project path
-                    let projectPath = nodeProjectService.getProjectPath(for: node, projectName: projectName)
+                    let projectPath = podProjectService.getProjectPath(for: pod, projectName: projectName)
             
             // If it's a Python framework, create its virtual environment
-            if node.framework.needsEnvironment && [.django, .flask, .fastapi, .purepy].contains(node.framework) {
-                await pythonBridge.ensureVirtualEnvironment(for: node)
+            if pod.framework.needsEnvironment && [.django, .flask, .fastapi, .purepy].contains(pod.framework) {
+                await pythonBridge.ensureVirtualEnvironment(for: pod)
             }
+            
+            // Each pod is its own git repository (team-scale boundary: Android / Apple / Web)
+            let podName = await MainActor.run { () -> String in
+                pods.first(where: { $0.id == pod.id })?.name ?? pod.name
+            }
+            // Save files before first commit
+            if let latest = await MainActor.run(body: { pods.first(where: { $0.id == pod.id }) }) {
+                try? await podProjectService.saveAllFiles(pod: latest, projectPath: projectPath)
+            }
+            _ = await GitService.ensureRepository(at: projectPath, podName: podName)
             
             // CRITICAL: All @Published property mutations must happen on main thread
             await MainActor.run {
-                // Ensure node has a main file
-                if let index = nodes.firstIndex(where: { $0.id == node.id }) {
-                    let mainFile = nodes[index].getOrCreateMainFile()
-                    if nodes[index].selectedFileId == nil {
-                        nodes[index].selectedFileId = mainFile.id
+                // Ensure pod has a main file
+                if let index = pods.firstIndex(where: { $0.id == pod.id }) {
+                    let mainFile = pods[index].getOrCreateMainFile()
+                    if pods[index].selectedFileId == nil {
+                        pods[index].selectedFileId = mainFile.id
                     }
                     
-                    // Update project path
-                    nodes[index].projectPath = projectPath.path
+                    // Update project path and refresh K8s YAML hostPath
+                    pods[index].projectPath = projectPath.path
+                    pods[index].regenerateKubernetesYAML()
+                    try? KubernetesManifestService.writeYAML(
+                        pods[index].kubernetesYAML,
+                        to: projectPath
+                    )
                     
-                    // Update selected node if it's the one we're working with
-                    if selectedNode?.id == node.id {
-                        selectedNode = nodes[index]
+                    // Update selected pod if it's the one we're working with
+                    if selectedPod?.id == pod.id {
+                        selectedPod = pods[index]
                     }
                 }
             }
         } catch {
-            print("Failed to create project structure for node \(node.name): \(error)")
+            print("Failed to create project structure for pod \(pod.name): \(error)")
         }
     }
     
-    func updateNode(_ node: Node) {
+    func updatePod(_ pod: Pod) {
         // CRITICAL: This must run on main thread since it mutates @Published properties
-        guard let index = nodes.firstIndex(where: { $0.id == node.id }) else { return }
+        guard let index = pods.firstIndex(where: { $0.id == pod.id }) else { return }
         
-        let oldFramework = nodes[index].framework
-        let oldProjectPath = nodes[index].projectPath
+        let oldFramework = pods[index].framework
+        let oldProjectPath = pods[index].projectPath
+        let oldName = pods[index].name
         
-        nodes[index] = node
+        pods[index] = pod
         
         // Ensure main file exists when framework changes
-        if oldFramework != node.framework {
-            let mainFile = nodes[index].getOrCreateMainFile()
-            if nodes[index].selectedFileId == nil {
-                nodes[index].selectedFileId = mainFile.id
+        if oldFramework != pod.framework {
+            let mainFile = pods[index].getOrCreateMainFile()
+            if pods[index].selectedFileId == nil {
+                pods[index].selectedFileId = mainFile.id
             }
+            // Framework defines container image + entrypoint → refresh K8s YAML
+            pods[index].regenerateKubernetesYAML()
+        } else if oldName != pod.name || oldProjectPath != pod.projectPath {
+            // Keep metadata in YAML in sync when name/path change
+            pods[index].regenerateKubernetesYAML()
+        }
+        
+        // Persist k8s/pod.yaml beside project code
+        if let path = pods[index].projectPath {
+            try? KubernetesManifestService.writeYAML(
+                pods[index].kubernetesYAML,
+                to: URL(fileURLWithPath: path)
+            )
         }
         
         // Ensure project structure exists
-        if node.projectPath == nil || oldProjectPath != node.projectPath {
+        if pod.projectPath == nil || oldProjectPath != pod.projectPath {
             Task {
-                await initializeNodeProject(node: nodes[index])
+                await initializePodProject(pod: pods[index])
             }
         } else {
             // Save all files to project
                     Task {
                         do {
-                            try await nodeProjectService.saveAllFiles(node: nodes[index], projectPath: nodeProjectService.getProjectPath(for: nodes[index], projectName: projectName))
+                            try await podProjectService.saveAllFiles(pod: pods[index], projectPath: podProjectService.getProjectPath(for: pods[index], projectName: projectName))
                         } catch {
                             print("Failed to save files: \(error)")
                         }
@@ -505,93 +538,93 @@ class ProjectManager: ObservableObject {
         
         // If framework changed to Python-based, ensure virtual environment exists
         let pythonFrameworks: [Framework] = [.django, .flask, .fastapi, .purepy]
-        if pythonFrameworks.contains(node.framework) && !pythonFrameworks.contains(oldFramework) {
+        if pythonFrameworks.contains(pod.framework) && !pythonFrameworks.contains(oldFramework) {
             Task {
-                await pythonBridge.ensureVirtualEnvironment(for: nodes[index])
+                await pythonBridge.ensureVirtualEnvironment(for: pods[index])
             }
         }
         
         // If requirements changed, update the environment
-        if pythonFrameworks.contains(node.framework) && node.pythonRequirements != nodes[index].pythonRequirements {
+        if pythonFrameworks.contains(pod.framework) && pod.pythonRequirements != pods[index].pythonRequirements {
             Task {
-                await pythonBridge.updatePythonRequirements(for: nodes[index])
+                await pythonBridge.updatePythonRequirements(for: pods[index])
             }
         }
         
-        if selectedNode?.id == node.id {
-            selectedNode = nodes[index]
+        if selectedPod?.id == pod.id {
+            selectedPod = pods[index]
         }
     }
     
-    func openNodeProjectInFinder(_ node: Node) {
-        nodeProjectService.openProjectInFinder(for: node, projectName: projectName)
+    func openPodProjectInFinder(_ pod: Pod) {
+        podProjectService.openProjectInFinder(for: pod, projectName: projectName)
     }
     
-    /// Save the currently selected node's files to the nodes array
-    func saveCurrentNodeFiles() {
-        guard let selectedNode = selectedNode,
-              let index = nodes.firstIndex(where: { $0.id == selectedNode.id }) else {
+    /// Save the currently selected pod's files to the pods array
+    func saveCurrentPodFiles() {
+        guard let selectedPod = selectedPod,
+              let index = pods.firstIndex(where: { $0.id == selectedPod.id }) else {
             return
         }
         
-        // Update the node in the array with the current selectedNode's state
-        // This ensures any changes in selectedNode are persisted to the array
-        nodes[index] = selectedNode
+        // Update the pod in the array with the current selectedPod's state
+        // This ensures any changes in selectedPod are persisted to the array
+        pods[index] = selectedPod
         
-        // Also ensure selectedNode is updated from array (in case array has newer data)
-        self.selectedNode = nodes[index]
+        // Also ensure selectedPod is updated from array (in case array has newer data)
+        self.selectedPod = pods[index]
         
         // Save files to disk
         Task {
             do {
-                let projectPath = nodeProjectService.getProjectPath(for: nodes[index], projectName: projectName)
-                try await nodeProjectService.saveAllFiles(node: nodes[index], projectPath: projectPath)
+                let projectPath = podProjectService.getProjectPath(for: pods[index], projectName: projectName)
+                try await podProjectService.saveAllFiles(pod: pods[index], projectPath: projectPath)
             } catch {
-                print("Failed to save node files: \(error)")
+                print("Failed to save pod files: \(error)")
             }
         }
     }
     
-    /// Force save current node by getting latest content from editor
-    func forceSaveCurrentNode() {
-        saveCurrentNodeFiles()
+    /// Force save current pod by getting latest content from editor
+    func forceSaveCurrentPod() {
+        saveCurrentPodFiles()
     }
     
     
-    func deleteNode(_ node: Node) {
-        nodes.removeAll { $0.id == node.id }
-        // Remove connections to this node
-        for i in nodes.indices {
-            nodes[i].connections.removeAll { $0 == node.id }
+    func deletePod(_ pod: Pod) {
+        pods.removeAll { $0.id == pod.id }
+        // Remove connections to this pod
+        for i in pods.indices {
+            pods[i].connections.removeAll { $0 == pod.id }
         }
-        if selectedNode?.id == node.id {
-            selectedNode = nil
-        }
-    }
-    
-    func connectNodes(from sourceId: UUID, to targetId: UUID) {
-        guard let index = nodes.firstIndex(where: { $0.id == sourceId }) else { return }
-        if !nodes[index].connections.contains(targetId) {
-            nodes[index].connections.append(targetId)
+        if selectedPod?.id == pod.id {
+            selectedPod = nil
         }
     }
     
-    func disconnectNodes(from sourceId: UUID, to targetId: UUID) {
-        guard let index = nodes.firstIndex(where: { $0.id == sourceId }) else { return }
-        nodes[index].connections.removeAll { $0 == targetId }
+    func connectPods(from sourceId: UUID, to targetId: UUID) {
+        guard let index = pods.firstIndex(where: { $0.id == sourceId }) else { return }
+        if !pods[index].connections.contains(targetId) {
+            pods[index].connections.append(targetId)
+        }
     }
     
-    func startConnection(from nodeId: UUID) {
-        connectingFromNodeId = nodeId
+    func disconnectPods(from sourceId: UUID, to targetId: UUID) {
+        guard let index = pods.firstIndex(where: { $0.id == sourceId }) else { return }
+        pods[index].connections.removeAll { $0 == targetId }
+    }
+    
+    func startConnection(from podId: UUID) {
+        connectingFromPodId = podId
     }
     
     func endConnection() {
-        connectingFromNodeId = nil
+        connectingFromPodId = nil
     }
     
-    func hoverConnectionPoint(nodeId: UUID?, isOutput: Bool) {
-        if let nodeId = nodeId {
-            hoveredConnectionPoint = (nodeId, isOutput)
+    func hoverConnectionPoint(podId: UUID?, isOutput: Bool) {
+        if let podId = podId {
+            hoveredConnectionPoint = (podId, isOutput)
         } else {
             hoveredConnectionPoint = nil
         }
@@ -599,35 +632,35 @@ class ProjectManager: ObservableObject {
     
     // Generation actions
     func generateiPhoneApp() {
-        guard let selected = selectedNode else {
-            print("No node selected for iPhone app generation")
+        guard let selected = selectedPod else {
+            print("No pod selected for iPhone app generation")
             return
         }
         
         Task {
-            await pythonBridge.generateiPhoneApp(node: selected)
+            await pythonBridge.generateiPhoneApp(pod: selected)
         }
     }
     
     func generateWebsite() {
-        guard let selected = selectedNode else {
-            print("No node selected for website generation")
+        guard let selected = selectedPod else {
+            print("No pod selected for website generation")
             return
         }
         
         Task {
-            await pythonBridge.generateWebsite(node: selected)
+            await pythonBridge.generateWebsite(pod: selected)
         }
     }
     
     func deployBackendToAWS() {
-        guard let selected = selectedNode else {
-            print("No node selected for AWS deployment")
+        guard let selected = selectedPod else {
+            print("No pod selected for AWS deployment")
             return
         }
         
         Task {
-            await pythonBridge.deployToAWS(node: selected)
+            await pythonBridge.deployToAWS(pod: selected)
         }
     }
 }

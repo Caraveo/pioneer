@@ -7,6 +7,7 @@ enum LLMProvider: String, Codable, CaseIterable, Identifiable {
     case google = "Google Gemini"
     case ollama = "Ollama"
     case mistystudio = "MistyStudio"
+    case grok = "Grok CLI"
     
     var id: String { rawValue }
     
@@ -17,6 +18,7 @@ enum LLMProvider: String, Codable, CaseIterable, Identifiable {
         case .google: return "g.circle.fill"
         case .ollama: return "server.rack"
         case .mistystudio: return "laptopcomputer"
+        case .grok: return "bolt.horizontal.circle.fill"
         }
     }
     
@@ -27,13 +29,14 @@ enum LLMProvider: String, Codable, CaseIterable, Identifiable {
         case .google: return "https://generativelanguage.googleapis.com/v1"
         case .ollama: return "http://localhost:11434"
         case .mistystudio: return "http://localhost:11973"
+        case .grok: return "" // Uses local `grok` CLI
         }
     }
     
     var requiresAPIKey: Bool {
         switch self {
         case .openai, .anthropic, .google: return true
-        case .ollama, .mistystudio: return false
+        case .ollama, .mistystudio, .grok: return false
         }
     }
 }
@@ -62,10 +65,48 @@ struct AIConfiguration: Codable {
     var googleAPIKey: String = ""
     var ollamaModel: String = "llama2"
     var mistystudioModel: String = "mistral"
+    var grokModel: String = "grok-4.5"
+    var grokCLIPath: String = "" // empty = auto-detect
     var temperature: Double = 0.7
     var maxTokens: Int = 2000
     var useContext: Bool = true
-    var includeNodeConnections: Bool = true
+    var includePodConnections: Bool = true
+    
+    /// Keep JSON key so existing UserDefaults configs still decode.
+    enum CodingKeys: String, CodingKey {
+        case selectedProvider
+        case selectedModel
+        case openAIAPIKey
+        case anthropicAPIKey
+        case googleAPIKey
+        case ollamaModel
+        case mistystudioModel
+        case grokModel
+        case grokCLIPath
+        case temperature
+        case maxTokens
+        case useContext
+        case includePodConnections = "includeNodeConnections"
+    }
+    
+    init() {}
+    
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        selectedProvider = try c.decodeIfPresent(LLMProvider.self, forKey: .selectedProvider) ?? .openai
+        selectedModel = try c.decodeIfPresent(String.self, forKey: .selectedModel) ?? ""
+        openAIAPIKey = try c.decodeIfPresent(String.self, forKey: .openAIAPIKey) ?? ""
+        anthropicAPIKey = try c.decodeIfPresent(String.self, forKey: .anthropicAPIKey) ?? ""
+        googleAPIKey = try c.decodeIfPresent(String.self, forKey: .googleAPIKey) ?? ""
+        ollamaModel = try c.decodeIfPresent(String.self, forKey: .ollamaModel) ?? "llama2"
+        mistystudioModel = try c.decodeIfPresent(String.self, forKey: .mistystudioModel) ?? "mistral"
+        grokModel = try c.decodeIfPresent(String.self, forKey: .grokModel) ?? "grok-4.5"
+        grokCLIPath = try c.decodeIfPresent(String.self, forKey: .grokCLIPath) ?? ""
+        temperature = try c.decodeIfPresent(Double.self, forKey: .temperature) ?? 0.7
+        maxTokens = try c.decodeIfPresent(Int.self, forKey: .maxTokens) ?? 2000
+        useContext = try c.decodeIfPresent(Bool.self, forKey: .useContext) ?? true
+        includePodConnections = try c.decodeIfPresent(Bool.self, forKey: .includePodConnections) ?? true
+    }
     
     static let `default` = AIConfiguration()
 }

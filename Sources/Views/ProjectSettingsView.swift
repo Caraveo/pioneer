@@ -34,7 +34,7 @@ struct ProjectSettingsView: View {
                             .font(.headline)
                             .foregroundColor(.primary)
                         
-                        Text("This is where all your node project files are saved. The structure will be:")
+                        Text("This is where all your pod project files are saved. The structure will be:")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                         
@@ -46,7 +46,7 @@ struct ProjectSettingsView: View {
                             Text("  └── {ProjectName}/")
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundColor(.secondary)
-                            Text("      └── {NodeId}/")
+                            Text("      └── {PodId}/")
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundColor(.secondary)
                         }

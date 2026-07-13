@@ -1,15 +1,15 @@
 import SwiftUI
 
-struct NodeCanvasView: View {
+struct PodCanvasView: View {
     @EnvironmentObject var projectManager: ProjectManager
     @State private var dragOffset: CGSize = .zero
     @State private var isDragging: Bool = false
-    @State private var draggedNodeId: UUID?
+    @State private var draggedPodId: UUID?
     @State private var initialDragPosition: CGPoint = .zero
     @State private var isPanning: Bool = false
     @State private var initialPanOffset: CGSize = .zero
     @State private var connectingToPoint: CGPoint?
-    @State private var hoveredNodeId: UUID?
+    @State private var hoveredPodId: UUID?
     @State private var mouseLocation: CGPoint = .zero
     @State private var aiPrompt: String = ""
     @State private var showAIResponse: Bool = false
@@ -23,55 +23,55 @@ struct NodeCanvasView: View {
                     drawGrid(context: context, size: size)
                 }
                 
-                // Nodes and connections
+                // Pods and connections
                 ZStack {
                     // Draw active connection being created
-                    if let connectingFromId = projectManager.connectingFromNodeId,
-                       let fromNode = projectManager.nodes.first(where: { $0.id == connectingFromId }) {
-                        let fromPoint = getConnectionPoint(for: fromNode, isOutput: true)
+                    if let connectingFromId = projectManager.connectingFromPodId,
+                       let fromPod = projectManager.pods.first(where: { $0.id == connectingFromId }) {
+                        let fromPoint = getConnectionPoint(for: fromPod, isOutput: true)
                         // Use mouse location or hovered connection point
                         let toPoint = connectingToPoint ?? mouseLocation
                         ConnectionView(
                             from: fromPoint,
                             to: toPoint,
-                            color: fromNode.framework.color,
+                            color: fromPod.framework.color,
                             isTemporary: true
                         )
                     }
                     
-                    // Draw connections first (behind nodes)
-                    ForEach(projectManager.nodes) { node in
-                        ForEach(node.connections, id: \.self) { targetId in
-                            if let targetNode = projectManager.nodes.first(where: { $0.id == targetId }) {
+                    // Draw connections first (behind pods)
+                    ForEach(projectManager.pods) { pod in
+                        ForEach(pod.connections, id: \.self) { targetId in
+                            if let targetPod = projectManager.pods.first(where: { $0.id == targetId }) {
                                 ConnectionView(
-                                    from: getConnectionPoint(for: node, isOutput: true),
-                                    to: getConnectionPoint(for: targetNode, isOutput: false),
-                                    color: node.framework.color
+                                    from: getConnectionPoint(for: pod, isOutput: true),
+                                    to: getConnectionPoint(for: targetPod, isOutput: false),
+                                    color: pod.framework.color
                                 )
                             }
                         }
                     }
                     
-                    // Draw nodes
-                    ForEach(projectManager.nodes) { node in
-                        NodeView(
-                            node: node,
+                    // Draw pods
+                    ForEach(projectManager.pods) { pod in
+                        PodView(
+                            pod: pod,
                             hoveredConnectionPoint: projectManager.hoveredConnectionPoint
                         )
                             .position(
-                                x: node.position.x + projectManager.canvasOffset.width,
-                                y: node.position.y + projectManager.canvasOffset.height
+                                x: pod.position.x + projectManager.canvasOffset.width,
+                                y: pod.position.y + projectManager.canvasOffset.height
                             )
                             .scaleEffect(projectManager.canvasScale)
                             .gesture(
                                 DragGesture(minimumDistance: 0)
                                     .onChanged { value in
-                                        if let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
-                                            if !isDragging || draggedNodeId != node.id {
+                                        if let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }) {
+                                            if !isDragging || draggedPodId != pod.id {
                                                 // Start of drag - store initial position
                                                 isDragging = true
-                                                draggedNodeId = node.id
-                                                initialDragPosition = node.position
+                                                draggedPodId = pod.id
+                                                initialDragPosition = pod.position
                                             }
                                             
                                             // Calculate new position based on initial position and translation
@@ -79,28 +79,28 @@ struct NodeCanvasView: View {
                                             let newX = initialDragPosition.x + (value.translation.width / projectManager.canvasScale)
                                             let newY = initialDragPosition.y + (value.translation.height / projectManager.canvasScale)
                                             
-                                            projectManager.nodes[index].position = CGPoint(x: newX, y: newY)
+                                            projectManager.pods[index].position = CGPoint(x: newX, y: newY)
                                         }
                                     }
                                     .onEnded { _ in
-                                        if draggedNodeId == node.id {
+                                        if draggedPodId == pod.id {
                                             isDragging = false
-                                            draggedNodeId = nil
+                                            draggedPodId = nil
                                             initialDragPosition = .zero
                                         }
                                     }
                             )
                             .onTapGesture {
                                 // IMMEDIATE SAVE before switching
-                                projectManager.saveCurrentNodeFiles()
+                                projectManager.saveCurrentPodFiles()
                                 
                                 // Small delay to ensure save completes
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                    projectManager.selectedNode = node
+                                    projectManager.selectedPod = pod
                                 }
                             }
                             .onHover { hovering in
-                                hoveredNodeId = hovering ? node.id : nil
+                                hoveredPodId = hovering ? pod.id : nil
                             }
                     }
                 }
@@ -115,8 +115,8 @@ struct NodeCanvasView: View {
                 DragGesture(minimumDistance: 5)
                     .modifiers(.command)
                     .onChanged { value in
-                        // Only pan if not dragging a node and not connecting
-                        if !isDragging && projectManager.connectingFromNodeId == nil {
+                        // Only pan if not dragging a pod and not connecting
+                        if !isDragging && projectManager.connectingFromPodId == nil {
                             if !isPanning {
                                 isPanning = true
                                 initialPanOffset = projectManager.canvasOffset
@@ -142,7 +142,7 @@ struct NodeCanvasView: View {
                         .gesture(
                             DragGesture(minimumDistance: 0)
                                 .onChanged { value in
-                                    if projectManager.connectingFromNodeId != nil {
+                                    if projectManager.connectingFromPodId != nil {
                                         // Convert to canvas coordinates
                                         mouseLocation = CGPoint(
                                             x: value.location.x - projectManager.canvasOffset.width,
@@ -194,97 +194,155 @@ struct NodeCanvasView: View {
         // Set loading state immediately to prevent spam clicks
         projectManager.aiService.isProcessing = true
         
-        guard let selectedNode = projectManager.selectedNode else {
-            // Show error - no node selected
+        guard let selectedPod = projectManager.selectedPod else {
+            // Show error - no pod selected
             projectManager.aiService.isProcessing = false // Reset on error
             withAnimation {
-                aiResponseMessage = "Please select a node first to generate code for it."
+                aiResponseMessage = "Please select a pod first — AI writes CODE + YAML for the selected pod."
                 showAIResponse = true
             }
             return
         }
         
         Task {
-            // Get connected nodes
-            let connectedNodeIds = selectedNode.connections
-            let connectedNodes = projectManager.nodes.filter { connectedNodeIds.contains($0.id) }
+            // Always use the live pod from the array (latest files/framework/type)
+            let livePod: Pod = await MainActor.run {
+                if let idx = projectManager.pods.firstIndex(where: { $0.id == selectedPod.id }) {
+                    if let sel = projectManager.selectedPod, sel.id == selectedPod.id {
+                        projectManager.pods[idx] = sel
+                    }
+                    return projectManager.pods[idx]
+                }
+                return selectedPod
+            }
+            
+            // Connected pods = context only (generation targets livePod alone)
+            let connectedPods: [Pod] = await MainActor.run {
+                let ids = livePod.connections
+                return projectManager.pods.filter { ids.contains($0.id) }
+            }
+            let allPods: [Pod] = await MainActor.run { projectManager.pods }
             
             // Ensure project structure exists
             do {
-                try await projectManager.nodeProjectService.createProjectStructure(for: selectedNode)
+                try await projectManager.podProjectService.createProjectStructure(for: livePod)
             } catch {
                 print("Failed to create project structure: \(error)")
             }
             
-            let generatedCode = await projectManager.aiService.generateCode(
+            // One prompt → CODE (launch file) + YAML, scoped to this pod’s language/context
+            let result = await projectManager.aiService.generateForPod(
                 prompt: aiPrompt,
-                framework: selectedNode.framework,
-                nodeContext: selectedNode,
-                connectedNodes: connectedNodes,
-                allNodes: projectManager.nodes,
+                framework: livePod.framework,
+                podContext: livePod,
+                connectedPods: connectedPods,
+                allPods: allPods
+            )
+            
+            guard let result, result.hasCode || result.hasYAML else {
+                await MainActor.run {
+                    withAnimation {
+                        aiResponseMessage = "Failed to generate CODE + YAML. Please try again."
+                        showAIResponse = true
+                    }
+                }
+                return
+            }
+            
+            let projectPath = projectManager.podProjectService.getProjectPath(
+                for: livePod,
                 projectName: projectManager.projectName
             )
             
-            // In agent mode, generatedCode will be nil because the agent already modified files
-            // In standard mode, we need to update the code
-            if let code = generatedCode, !projectManager.aiService.useAgentMode {
-                // Extract only the code (remove markdown if present)
-                let codeOnly = extractCodeFromResponse(code)
-                
-                // Update the selected node's code
-                if let index = projectManager.nodes.firstIndex(where: { $0.id == selectedNode.id }) {
-                    // Ensure main file exists
-                    let mainFile = projectManager.nodes[index].getOrCreateMainFile()
-                    
-                    // Update main file content
-                    if let fileIndex = projectManager.nodes[index].files.firstIndex(where: { $0.id == mainFile.id }) {
-                        projectManager.nodes[index].files[fileIndex].content = codeOnly
-                        projectManager.nodes[index].code = codeOnly
-                        projectManager.nodes[index].selectedFileId = mainFile.id
+            if let index = projectManager.pods.firstIndex(where: { $0.id == livePod.id }) {
+                // --- Apply CODE to launch file (already language-normalized) ---
+                if result.hasCode {
+                    let codeOnly = extractCodeFromResponse(result.code)
+                    // Keep language metadata aligned with framework
+                    let mainFile = projectManager.pods[index].getOrCreateMainFile()
+                    if let fileIndex = projectManager.pods[index].files.firstIndex(where: { $0.id == mainFile.id }) {
+                        projectManager.pods[index].files[fileIndex].content = codeOnly
+                        projectManager.pods[index].files[fileIndex].language = projectManager.pods[index].framework.primaryLanguage
+                        projectManager.pods[index].code = codeOnly
+                        projectManager.pods[index].selectedFileId = mainFile.id
                     }
-                    
-                    // Save all files to project
-                    do {
-                        let projectPath = projectManager.nodeProjectService.getProjectPath(for: selectedNode, projectName: projectManager.projectName)
-                        try await projectManager.nodeProjectService.saveAllFiles(node: projectManager.nodes[index], projectPath: projectPath)
-                        
-                        // Update project path if not set
-                        if projectManager.nodes[index].projectPath == nil {
-                            projectManager.nodes[index].projectPath = projectPath.path
-                        }
-                    } catch {
-                        print("Failed to save code to project: \(error)")
-                    }
-                    
-                    projectManager.selectedNode = projectManager.nodes[index]
                 }
                 
-                // Show success message
-                await MainActor.run {
-                    withAnimation {
-                        aiResponseMessage = "Code generated and saved to \(selectedNode.name) project"
-                        showAIResponse = true
-                        aiPrompt = "" // Clear prompt
+                // --- Apply YAML to this pod’s own K8s manifest ---
+                if result.hasYAML {
+                    var yaml = extractCodeFromResponse(result.yaml)
+                    // Keep hostPath pointed at this pod’s project directory
+                    if !yaml.contains(projectPath.path) {
+                        yaml = Self.injectHostPath(into: yaml, path: projectPath.path)
+                            ?? yaml
                     }
+                    projectManager.pods[index].kubernetesYAML = yaml
+                } else if projectManager.pods[index].kubernetesYAML.isEmpty {
+                    projectManager.pods[index].regenerateKubernetesYAML()
                 }
-            } else if projectManager.aiService.useAgentMode {
-                // Agent mode - files were already modified by the agent
-                await MainActor.run {
-                    withAnimation {
-                        aiResponseMessage = "Agent completed actions in \(selectedNode.name) project"
-                        showAIResponse = true
-                        aiPrompt = "" // Clear prompt
-                    }
+                
+                projectManager.pods[index].projectPath = projectPath.path
+                
+                // Persist CODE files + YAML
+                do {
+                    try await projectManager.podProjectService.saveAllFiles(
+                        pod: projectManager.pods[index],
+                        projectPath: projectPath
+                    )
+                    try KubernetesManifestService.writeYAML(
+                        projectManager.pods[index].kubernetesYAML,
+                        to: projectPath
+                    )
+                } catch {
+                    print("Failed to save pod artifacts: \(error)")
                 }
-            } else {
-                await MainActor.run {
-                    withAnimation {
-                        aiResponseMessage = "Failed to generate code. Please try again."
-                        showAIResponse = true
-                    }
+                
+                projectManager.selectedPod = projectManager.pods[index]
+            }
+            
+            let parts: [String] = [
+                result.hasCode ? "CODE" : nil,
+                result.hasYAML ? "YAML" : nil
+            ].compactMap { $0 }
+            
+            await MainActor.run {
+                withAnimation {
+                    let fw = livePod.framework.rawValue
+                    aiResponseMessage = "Generated \(parts.joined(separator: " + ")) for “\(livePod.name)” (\(fw)) — syntax matched to pod context"
+                    showAIResponse = true
+                    aiPrompt = ""
                 }
             }
         }
+    }
+    
+    /// Best-effort: set hostPath.path in Pod YAML to the on-disk project path.
+    private static func injectHostPath(into yaml: String, path: String) -> String? {
+        // Replace an existing hostPath path: line if present
+        let lines = yaml.components(separatedBy: "\n")
+        var result: [String] = []
+        var replaced = false
+        var inHostPath = false
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("hostPath:") {
+                inHostPath = true
+                result.append(line)
+                continue
+            }
+            if inHostPath && trimmed.hasPrefix("path:") {
+                let indent = String(line.prefix(while: { $0 == " " || $0 == "\t" }))
+                result.append("\(indent)path: \(path)")
+                replaced = true
+                inHostPath = false
+                continue
+            }
+            if inHostPath && !trimmed.isEmpty && !trimmed.hasPrefix("path:") && !trimmed.hasPrefix("type:") {
+                inHostPath = false
+            }
+            result.append(line)
+        }
+        return replaced ? result.joined(separator: "\n") : nil
     }
     
     
@@ -395,52 +453,52 @@ struct NodeCanvasView: View {
         )
     }
     
-    private func getConnectionPoint(for node: Node, isOutput: Bool) -> CGPoint {
-        let nodeWidth: CGFloat = 200
-        let connectionY = node.position.y + 140 // Bottom of node
-        let x = isOutput ? node.position.x + nodeWidth - 20 : node.position.x + 20
+    private func getConnectionPoint(for pod: Pod, isOutput: Bool) -> CGPoint {
+        let podWidth: CGFloat = 200
+        let connectionY = pod.position.y + 140 // Bottom of pod
+        let x = isOutput ? pod.position.x + podWidth - 20 : pod.position.x + 20
         return CGPoint(x: x, y: connectionY)
     }
 }
 
-struct NodeView: View {
-    let node: Node
-    let hoveredConnectionPoint: (nodeId: UUID, isOutput: Bool)?
+struct PodView: View {
+    let pod: Pod
+    let hoveredConnectionPoint: (podId: UUID, isOutput: Bool)?
     @EnvironmentObject var projectManager: ProjectManager
     @State private var isRenaming = false
     @State private var renameText = ""
     
     var isSelected: Bool {
-        projectManager.selectedNode?.id == node.id
+        projectManager.selectedPod?.id == pod.id
     }
     
     var hasInputConnections: Bool {
-        projectManager.nodes.contains { $0.connections.contains(node.id) }
+        projectManager.pods.contains { $0.connections.contains(pod.id) }
     }
     
     var hasOutputConnections: Bool {
-        !node.connections.isEmpty
+        !pod.connections.isEmpty
     }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Header
             HStack {
-                Image(systemName: node.type.icon)
-                    .foregroundColor(node.framework.color)
+                Image(systemName: pod.type.icon)
+                    .foregroundColor(pod.framework.color)
                 
                 if isRenaming {
-                    TextField("Node name", text: $renameText)
+                    TextField("Pod name", text: $renameText)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13, weight: .semibold))
                         .onSubmit {
                             finishRenaming()
                         }
                         .onAppear {
-                            renameText = node.name
+                            renameText = pod.name
                         }
                 } else {
-                    Text(node.name)
+                    Text(pod.name)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(isSelected ? .primary : .primary)
                         .onTapGesture(count: 2) {
@@ -452,7 +510,7 @@ struct NodeView: View {
                 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(node.framework.color)
+                        .foregroundColor(pod.framework.color)
                         .font(.system(size: 14))
                 }
             }
@@ -464,23 +522,23 @@ struct NodeView: View {
             // Content preview
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Image(systemName: node.framework.icon)
+                    Image(systemName: pod.framework.icon)
                         .font(.system(size: 10))
-                        .foregroundColor(node.framework.color)
-                    Text(node.framework.rawValue)
+                        .foregroundColor(pod.framework.color)
+                    Text(pod.framework.rawValue)
                         .font(.system(size: 10))
-                        .foregroundColor(node.framework.color)
+                        .foregroundColor(pod.framework.color)
                 }
                 .padding(.horizontal, 12)
                 
-                if let mainFile = node.selectedFile, !mainFile.content.isEmpty {
+                if let mainFile = pod.selectedFile, !mainFile.content.isEmpty {
                     Text(mainFile.content.prefix(50) + (mainFile.content.count > 50 ? "..." : ""))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 12)
                         .lineLimit(2)
-                } else if !node.code.isEmpty {
-                    Text(node.code.prefix(50) + (node.code.count > 50 ? "..." : ""))
+                } else if !pod.code.isEmpty {
+                    Text(pod.code.prefix(50) + (pod.code.count > 50 ? "..." : ""))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 12)
@@ -493,22 +551,22 @@ struct NodeView: View {
             HStack {
                 // Input connection point (left side)
                 ConnectionPointView(
-                    node: node,
+                    pod: pod,
                     isOutput: false,
                     isConnected: hasInputConnections,
-                    isHovered: hoveredConnectionPoint?.nodeId == node.id && hoveredConnectionPoint?.isOutput == false,
-                    color: node.framework.color
+                    isHovered: hoveredConnectionPoint?.podId == pod.id && hoveredConnectionPoint?.isOutput == false,
+                    color: pod.framework.color
                 )
                 
                 Spacer()
                 
                 // Output connection point (right side)
                 ConnectionPointView(
-                    node: node,
+                    pod: pod,
                     isOutput: true,
                     isConnected: hasOutputConnections,
-                    isHovered: hoveredConnectionPoint?.nodeId == node.id && hoveredConnectionPoint?.isOutput == true,
-                    color: node.framework.color
+                    isHovered: hoveredConnectionPoint?.podId == pod.id && hoveredConnectionPoint?.isOutput == true,
+                    color: pod.framework.color
                 )
             }
             .padding(.horizontal, 12)
@@ -521,42 +579,42 @@ struct NodeView: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(
-                            isSelected ? node.language.color : Color.clear,
+                            isSelected ? pod.language.color : Color.clear,
                             lineWidth: isSelected ? 3 : 0
                         )
                 )
                 .shadow(
-                    color: isSelected ? node.language.color.opacity(0.4) : .black.opacity(0.1),
+                    color: isSelected ? pod.language.color.opacity(0.4) : .black.opacity(0.1),
                     radius: isSelected ? 8 : 5,
                     y: 2
                 )
         )
         .onChange(of: isRenaming) { newValue in
-            if !newValue && !renameText.isEmpty && renameText != node.name {
+            if !newValue && !renameText.isEmpty && renameText != pod.name {
                 finishRenaming()
             }
         }
     }
     
     private func startRenaming() {
-        renameText = node.name
+        renameText = pod.name
         isRenaming = true
     }
     
     private func finishRenaming() {
-        guard let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }) else { return }
+        guard let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }) else { return }
         
         let newName = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !newName.isEmpty && newName != node.name else {
+        guard !newName.isEmpty && newName != pod.name else {
             isRenaming = false
             return
         }
         
-        let oldName = projectManager.nodes[index].name
-        projectManager.nodes[index].name = newName
+        let oldName = projectManager.pods[index].name
+        projectManager.pods[index].name = newName
         
         // Rename directory in file system if it exists
-        if let oldProjectPath = projectManager.nodes[index].projectPath {
+        if let oldProjectPath = projectManager.pods[index].projectPath {
             let oldURL = URL(fileURLWithPath: oldProjectPath)
             let parentDir = oldURL.deletingLastPathComponent()
             let newDirName = sanitizeDirectoryName(newName)
@@ -567,17 +625,17 @@ struct NodeView: View {
                 do {
                     if FileManager.default.fileExists(atPath: oldURL.path) {
                         try FileManager.default.moveItem(at: oldURL, to: newURL)
-                        projectManager.nodes[index].projectPath = newURL.path
+                        projectManager.pods[index].projectPath = newURL.path
                     }
                 } catch {
-                    print("Failed to rename node directory: \(error)")
+                    print("Failed to rename pod directory: \(error)")
                     // Revert name change on error
-                    projectManager.nodes[index].name = oldName
+                    projectManager.pods[index].name = oldName
                 }
             }
         }
         
-        projectManager.selectedNode = projectManager.nodes[index]
+        projectManager.selectedPod = projectManager.pods[index]
         isRenaming = false
     }
     
@@ -591,7 +649,7 @@ struct NodeView: View {
 }
 
 struct ConnectionPointView: View {
-    let node: Node
+    let pod: Pod
     let isOutput: Bool
     let isConnected: Bool
     let isHovered: Bool
@@ -600,7 +658,7 @@ struct ConnectionPointView: View {
     @State private var isDragging: Bool = false
     
     var isConnecting: Bool {
-        projectManager.connectingFromNodeId != nil
+        projectManager.connectingFromPodId != nil
     }
     
     var body: some View {
@@ -618,14 +676,14 @@ struct ConnectionPointView: View {
                     .onChanged { value in
                         if !isDragging && isOutput {
                             isDragging = true
-                            projectManager.startConnection(from: node.id)
+                            projectManager.startConnection(from: pod.id)
                         }
                     }
                     .onEnded { value in
                         isDragging = false
                         // Connection will be completed on tap of input point
                         // Or cancel if not connected
-                        if projectManager.connectingFromNodeId == node.id {
+                        if projectManager.connectingFromPodId == pod.id {
                             // Check if we're over an input point
                             // This would be handled by the canvas detecting the drop
                         }
@@ -634,17 +692,17 @@ struct ConnectionPointView: View {
             .onTapGesture {
                 if !isOutput && isConnecting {
                     // Complete connection to this input
-                    if let connectingFrom = projectManager.connectingFromNodeId, connectingFrom != node.id {
-                        projectManager.connectNodes(from: connectingFrom, to: node.id)
+                    if let connectingFrom = projectManager.connectingFromPodId, connectingFrom != pod.id {
+                        projectManager.connectPods(from: connectingFrom, to: pod.id)
                         projectManager.endConnection()
                     } else {
-                        // Cancel connection if clicking same node
+                        // Cancel connection if clicking same pod
                         projectManager.endConnection()
                     }
                 } else if isOutput && !isConnecting {
                     // Start new connection from output
-                    projectManager.startConnection(from: node.id)
-                } else if isOutput && isConnecting && projectManager.connectingFromNodeId == node.id {
+                    projectManager.startConnection(from: pod.id)
+                } else if isOutput && isConnecting && projectManager.connectingFromPodId == pod.id {
                     // Cancel connection if clicking output again
                     projectManager.endConnection()
                 }
@@ -653,14 +711,14 @@ struct ConnectionPointView: View {
                 if isConnected {
                     Button("Disconnect") {
                         if isOutput {
-                            // Remove all connections from this node
-                            if let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
-                                projectManager.nodes[index].connections.removeAll()
+                            // Remove all connections from this pod
+                            if let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }) {
+                                projectManager.pods[index].connections.removeAll()
                             }
                         } else {
-                            // Remove connections to this node
-                            for i in projectManager.nodes.indices {
-                                projectManager.nodes[i].connections.removeAll { $0 == node.id }
+                            // Remove connections to this pod
+                            for i in projectManager.pods.indices {
+                                projectManager.pods[i].connections.removeAll { $0 == pod.id }
                             }
                         }
                     }
@@ -668,9 +726,9 @@ struct ConnectionPointView: View {
             }
             .onHover { hovering in
                 if hovering {
-                    projectManager.hoverConnectionPoint(nodeId: node.id, isOutput: isOutput)
-                } else if projectManager.hoveredConnectionPoint?.nodeId == node.id {
-                    projectManager.hoverConnectionPoint(nodeId: nil, isOutput: false)
+                    projectManager.hoverConnectionPoint(podId: pod.id, isOutput: isOutput)
+                } else if projectManager.hoveredConnectionPoint?.podId == pod.id {
+                    projectManager.hoverConnectionPoint(podId: nil, isOutput: false)
                 }
             }
     }

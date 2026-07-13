@@ -19,33 +19,41 @@ struct ContentView: View {
                 
                 Divider()
                 
-                // Content based on view mode
+                // Content based on view mode: PODS | CODE | YAML | GIT
                 Group {
                     switch projectManager.viewMode {
-                    case .nodeCanvas:
-                        // Node Canvas Mode - Show node canvas and property bar
+                    case .podCanvas:
                         HSplitView {
-                            // Node canvas
-                            NodeCanvasView()
+                            PodCanvasView()
                                 .frame(minWidth: 400)
                             
-                            // Property bar
                             PropertyBarView()
                                 .frame(minWidth: 250, idealWidth: 300, maxWidth: 400)
                         }
                     
-                    case .editor:
-                        // Editor Mode - Show code editor with terminal at bottom
+                    case .code:
                         VStack(spacing: 0) {
-                            // Code editor (takes remaining space)
                             CodeEditorView()
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                             
                             Divider()
                             
-                            // Terminal at bottom (spans full width)
                             TerminalView()
                         }
+                    
+                    case .yaml:
+                        VStack(spacing: 0) {
+                            YAMLEditorView()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            
+                            Divider()
+                            
+                            TerminalView()
+                        }
+                    
+                    case .git:
+                        GitView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
             }

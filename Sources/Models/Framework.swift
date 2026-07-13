@@ -20,14 +20,24 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
     // Rust
     case rust = "Rust"
     
-    // Swift
+    // Apple platforms
     case swift = "Swift"
     case swiftui = "SwiftUI"
+    case objectiveC = "Objective-C"
+    
+    // Android
+    case kotlin = "Kotlin"
+    case jetpackCompose = "Jetpack Compose"
+    case androidJava = "Java (Android)"
+    
+    // Cross-platform mobile
+    case reactNative = "React Native"
+    case flutter = "Flutter"
     
     // Go
     case go = "Go"
     
-    // Java
+    // Java / JVM backend
     case java = "Java"
     case spring = "Spring"
     
@@ -36,11 +46,42 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
     case kubernetes = "Kubernetes"
     case terraform = "Terraform"
     
+    // Databases
+    case postgresql = "PostgreSQL"
+    case mysql = "MySQL"
+    case mongodb = "MongoDB"
+    case redis = "Redis"
+    case sqlite = "SQLite"
+    
     var id: String { rawValue }
+    
+    /// Settings UI grouping.
+    var settingsCategory: String {
+        switch self {
+        case .nodejs, .angular, .react, .vue, .nextjs, .express, .nestjs, .reactNative:
+            return "JavaScript / TypeScript"
+        case .django, .flask, .fastapi, .purepy:
+            return "Python"
+        case .swift, .swiftui, .objectiveC:
+            return "Apple (macOS / iOS)"
+        case .kotlin, .jetpackCompose, .androidJava:
+            return "Android"
+        case .flutter:
+            return "Cross-platform"
+        case .rust, .go:
+            return "Systems"
+        case .java, .spring:
+            return "Java / JVM"
+        case .postgresql, .mysql, .mongodb, .redis, .sqlite:
+            return "Database"
+        case .docker, .kubernetes, .terraform:
+            return "Infrastructure"
+        }
+    }
     
     var icon: String {
         switch self {
-        case .nodejs: return "nodejs"
+        case .nodejs: return "server.rack"
         case .angular: return "a.circle"
         case .react: return "r.circle"
         case .vue: return "v.circle"
@@ -50,83 +91,113 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
         case .django: return "d.circle"
         case .flask: return "f.circle"
         case .fastapi: return "bolt"
-        case .purepy: return "python"
+        case .purepy: return "chevron.left.forwardslash.chevron.right"
         case .rust: return "r.square"
         case .swift: return "swift"
         case .swiftui: return "swift"
+        case .objectiveC: return "c.circle"
+        case .kotlin: return "k.circle.fill"
+        case .jetpackCompose: return "rectangle.3.group"
+        case .androidJava: return "j.circle.fill"
+        case .reactNative: return "iphone.gen3"
+        case .flutter: return "bird"
         case .go: return "g.circle"
         case .java: return "j.circle"
-        case .spring: return "s.circle"
+        case .spring: return "leaf"
         case .docker: return "cube.box"
-        case .kubernetes: return "k.circle"
+        case .kubernetes: return "circle.hexagongrid"
         case .terraform: return "mountain.2"
+        case .postgresql: return "cylinder"
+        case .mysql: return "cylinder.fill"
+        case .mongodb: return "leaf.circle"
+        case .redis: return "bolt.horizontal.circle"
+        case .sqlite: return "internaldrive"
         }
     }
     
     var color: Color {
         switch self {
-        case .nodejs: return Color(red: 0.4, green: 0.7, blue: 0.3) // Green
-        case .angular: return Color(red: 0.9, green: 0.2, blue: 0.2) // Red
-        case .react: return Color(red: 0.2, green: 0.7, blue: 0.9) // Cyan
-        case .vue: return Color(red: 0.2, green: 0.7, blue: 0.4) // Green
-        case .nextjs: return Color.black
+        case .nodejs: return Color(red: 0.4, green: 0.7, blue: 0.3)
+        case .angular: return Color(red: 0.9, green: 0.2, blue: 0.2)
+        case .react: return Color(red: 0.2, green: 0.7, blue: 0.9)
+        case .vue: return Color(red: 0.2, green: 0.7, blue: 0.4)
+        case .nextjs: return Color.primary
         case .express: return Color.gray
-        case .nestjs: return Color(red: 0.9, green: 0.2, blue: 0.2) // Red
-        case .django: return Color(red: 0.1, green: 0.4, blue: 0.2) // Dark Green
-        case .flask: return Color.black
-        case .fastapi: return Color(red: 0.1, green: 0.6, blue: 0.4) // Teal
-        case .purepy: return Color(red: 0.2, green: 0.6, blue: 0.9) // Blue
-        case .rust: return Color(red: 0.7, green: 0.3, blue: 0.1) // Orange
-        case .swift: return Color(red: 1.0, green: 0.58, blue: 0.0) // Orange
-        case .swiftui: return Color(red: 1.0, green: 0.58, blue: 0.0) // Orange
-        case .go: return Color(red: 0.0, green: 0.7, blue: 0.8) // Cyan
-        case .java: return Color(red: 0.9, green: 0.5, blue: 0.1) // Orange
-        case .spring: return Color(red: 0.4, green: 0.7, blue: 0.3) // Green
-        case .docker: return Color(red: 0.1, green: 0.7, blue: 0.9) // Cyan
-        case .kubernetes: return Color(red: 0.3, green: 0.5, blue: 0.9) // Blue
-        case .terraform: return Color(red: 0.6, green: 0.3, blue: 0.9) // Purple
+        case .nestjs: return Color(red: 0.9, green: 0.2, blue: 0.2)
+        case .django: return Color(red: 0.1, green: 0.4, blue: 0.2)
+        case .flask: return Color.primary
+        case .fastapi: return Color(red: 0.1, green: 0.6, blue: 0.4)
+        case .purepy: return Color(red: 0.2, green: 0.6, blue: 0.9)
+        case .rust: return Color(red: 0.7, green: 0.3, blue: 0.1)
+        case .swift, .swiftui: return Color(red: 1.0, green: 0.58, blue: 0.0)
+        case .objectiveC: return Color(red: 0.3, green: 0.5, blue: 0.9)
+        case .kotlin: return Color(red: 0.5, green: 0.3, blue: 0.9)
+        case .jetpackCompose: return Color(red: 0.2, green: 0.8, blue: 0.5)
+        case .androidJava: return Color(red: 0.2, green: 0.7, blue: 0.3)
+        case .reactNative: return Color(red: 0.3, green: 0.8, blue: 0.95)
+        case .flutter: return Color(red: 0.2, green: 0.6, blue: 0.95)
+        case .go: return Color(red: 0.0, green: 0.7, blue: 0.8)
+        case .java: return Color(red: 0.9, green: 0.5, blue: 0.1)
+        case .spring: return Color(red: 0.4, green: 0.7, blue: 0.3)
+        case .docker: return Color(red: 0.1, green: 0.7, blue: 0.9)
+        case .kubernetes: return Color(red: 0.3, green: 0.5, blue: 0.9)
+        case .terraform: return Color(red: 0.6, green: 0.3, blue: 0.9)
+        case .postgresql: return Color(red: 0.2, green: 0.4, blue: 0.7)
+        case .mysql: return Color(red: 0.0, green: 0.45, blue: 0.65)
+        case .mongodb: return Color(red: 0.3, green: 0.7, blue: 0.35)
+        case .redis: return Color(red: 0.85, green: 0.2, blue: 0.2)
+        case .sqlite: return Color(red: 0.1, green: 0.55, blue: 0.85)
         }
     }
     
     var primaryLanguage: CodeLanguage {
         switch self {
-        case .nodejs, .angular, .react, .vue, .nextjs, .express, .nestjs:
+        case .nodejs, .angular, .react, .vue, .nextjs, .express, .nestjs, .reactNative:
             return .javascript
         case .django, .flask, .fastapi, .purepy:
             return .python
-        case .rust:
-            return .bash // Will need Rust syntax highlighting
+        case .rust, .go, .flutter:
+            return .bash
         case .swift, .swiftui:
             return .swift
-        case .go:
-            return .bash // Will need Go syntax highlighting
-        case .java, .spring:
-            return .bash // Will need Java syntax highlighting
+        case .objectiveC:
+            return .swift // closest highlighting
+        case .java, .spring, .androidJava, .kotlin, .jetpackCompose:
+            return .bash
         case .docker:
             return .dockerfile
         case .kubernetes:
             return .kubernetes
         case .terraform:
             return .terraform
+        case .postgresql, .mysql, .sqlite:
+            return .sql
+        case .mongodb, .redis:
+            return .bash
         }
     }
     
     var needsEnvironment: Bool {
         switch self {
-        case .nodejs, .angular, .react, .vue, .nextjs, .express, .nestjs:
-            return true // Needs Volta/Node.js
+        case .nodejs, .angular, .react, .vue, .nextjs, .express, .nestjs, .reactNative:
+            return true
         case .django, .flask, .fastapi, .purepy:
-            return true // Needs Python venv
-        case .rust, .swift, .swiftui, .go, .java, .spring:
-            return false // Compiled languages
+            return true
+        case .flutter:
+            return true
+        case .rust, .swift, .swiftui, .objectiveC, .go, .java, .spring,
+             .kotlin, .jetpackCompose, .androidJava:
+            return false
         case .docker, .kubernetes, .terraform:
-            return false // Infrastructure
+            return false
+        case .postgresql, .mysql, .mongodb, .redis, .sqlite:
+            return false
         }
     }
     
     var launchFile: String {
         switch self {
-        case .nodejs:
+        case .nodejs, .express:
             return "src/index.js"
         case .angular:
             return "src/main.ts"
@@ -136,8 +207,6 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
             return "src/main.js"
         case .nextjs:
             return "pages/index.js"
-        case .express:
-            return "src/index.js"
         case .nestjs:
             return "src/main.ts"
         case .django:
@@ -154,6 +223,18 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
             return "Sources/main.swift"
         case .swiftui:
             return "Sources/App.swift"
+        case .objectiveC:
+            return "Sources/main.m"
+        case .kotlin:
+            return "app/src/main/java/com/example/app/MainActivity.kt"
+        case .jetpackCompose:
+            return "app/src/main/java/com/example/app/MainActivity.kt"
+        case .androidJava:
+            return "app/src/main/java/com/example/app/MainActivity.java"
+        case .reactNative:
+            return "App.js"
+        case .flutter:
+            return "lib/main.dart"
         case .go:
             return "main.go"
         case .java:
@@ -166,6 +247,16 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
             return "deployment.yaml"
         case .terraform:
             return "main.tf"
+        case .postgresql:
+            return "sql/init.sql"
+        case .mysql:
+            return "sql/init.sql"
+        case .mongodb:
+            return "scripts/init.js"
+        case .redis:
+            return "scripts/init.redis"
+        case .sqlite:
+            return "sql/schema.sql"
         }
     }
     
@@ -333,6 +424,129 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
                 }
             }
             """
+        case .objectiveC:
+            return """
+            #import <Foundation/Foundation.h>
+
+            int main(int argc, const char * argv[]) {
+                @autoreleasepool {
+                    NSLog(@"Hello, \(name)!");
+                }
+                return 0;
+            }
+            """
+        case .kotlin:
+            return """
+            package com.example.app
+
+            import android.os.Bundle
+            import android.widget.TextView
+            import androidx.appcompat.app.AppCompatActivity
+
+            class MainActivity : AppCompatActivity() {
+                override fun onCreate(savedInstanceState: Bundle?) {
+                    super.onCreate(savedInstanceState)
+                    val text = TextView(this).apply {
+                        text = "Hello, \(name)!"
+                        textSize = 24f
+                    }
+                    setContentView(text)
+                }
+            }
+            """
+        case .jetpackCompose:
+            return """
+            package com.example.app
+
+            import android.os.Bundle
+            import androidx.activity.ComponentActivity
+            import androidx.activity.compose.setContent
+            import androidx.compose.material3.Text
+            import androidx.compose.runtime.Composable
+            import androidx.compose.ui.tooling.preview.Preview
+
+            class MainActivity : ComponentActivity() {
+                override fun onCreate(savedInstanceState: Bundle?) {
+                    super.onCreate(savedInstanceState)
+                    setContent {
+                        Greeting(name = "\(name)")
+                    }
+                }
+            }
+
+            @Composable
+            fun Greeting(name: String) {
+                Text(text = "Hello, $name!")
+            }
+
+            @Preview
+            @Composable
+            fun PreviewGreeting() {
+                Greeting("\(name)")
+            }
+            """
+        case .androidJava:
+            return """
+            package com.example.app;
+
+            import android.os.Bundle;
+            import android.widget.TextView;
+            import androidx.appcompat.app.AppCompatActivity;
+
+            public class MainActivity extends AppCompatActivity {
+                @Override
+                protected void onCreate(Bundle savedInstanceState) {
+                    super.onCreate(savedInstanceState);
+                    TextView text = new TextView(this);
+                    text.setText("Hello, \(name)!");
+                    text.setTextSize(24);
+                    setContentView(text);
+                }
+            }
+            """
+        case .reactNative:
+            return """
+            import React from 'react';
+            import { SafeAreaView, Text, StyleSheet } from 'react-native';
+
+            export default function App() {
+              return (
+                <SafeAreaView style={styles.container}>
+                  <Text style={styles.title}>Hello, \(name)!</Text>
+                </SafeAreaView>
+              );
+            }
+
+            const styles = StyleSheet.create({
+              container: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+              title: { fontSize: 24, fontWeight: '600' },
+            });
+            """
+        case .flutter:
+            return """
+            import 'package:flutter/material.dart';
+
+            void main() {
+              runApp(const MyApp());
+            }
+
+            class MyApp extends StatelessWidget {
+              const MyApp({super.key});
+
+              @override
+              Widget build(BuildContext context) {
+                return MaterialApp(
+                  title: '\(name)',
+                  home: Scaffold(
+                    appBar: AppBar(title: const Text('\(name)')),
+                    body: const Center(
+                      child: Text('Hello, \(name)!'),
+                    ),
+                  ),
+                );
+              }
+            }
+            """
         case .go:
             return """
             package main
@@ -411,6 +625,64 @@ enum Framework: String, Codable, CaseIterable, Identifiable {
                 Name = "\(name)"
               }
             }
+            """
+        case .postgresql:
+            return """
+            -- \(name) · PostgreSQL schema
+            -- Applied on first start via /docker-entrypoint-initdb.d
+
+            CREATE TABLE IF NOT EXISTS items (
+                id          BIGSERIAL PRIMARY KEY,
+                name        TEXT NOT NULL,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+
+            INSERT INTO items (name) VALUES ('Hello, \(name)!')
+            ON CONFLICT DO NOTHING;
+            """
+        case .mysql:
+            return """
+            -- \(name) · MySQL schema
+
+            CREATE TABLE IF NOT EXISTS items (
+                id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+                name        VARCHAR(255) NOT NULL,
+                created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            INSERT INTO items (name) VALUES ('Hello, \(name)!');
+            """
+        case .mongodb:
+            return """
+            // \(name) · MongoDB init script
+            // Run with: mongosh < scripts/init.js
+
+            db = db.getSiblingDB('app');
+            db.items.insertOne({
+              name: 'Hello, \(name)!',
+              createdAt: new Date()
+            });
+            print('Seeded \(name)');
+            """
+        case .redis:
+            return """
+            # \(name) · Redis seed commands
+            # redis-cli < scripts/init.redis
+
+            SET app:greeting "Hello, \(name)!"
+            SADD app:tags pioneer database redis
+            """
+        case .sqlite:
+            return """
+            -- \(name) · SQLite schema
+
+            CREATE TABLE IF NOT EXISTS items (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT NOT NULL,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            INSERT INTO items (name) VALUES ('Hello, \(name)!');
             """
         }
     }

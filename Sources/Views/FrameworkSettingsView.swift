@@ -4,9 +4,20 @@ struct FrameworkSettingsView: View {
     @StateObject private var frameworkManager = FrameworkManager()
     @Environment(\.dismiss) private var dismiss
     
+    private let categories: [(title: String, frameworks: [Framework])] = [
+        ("Apple (macOS / iOS)", [.swiftui, .swift, .objectiveC]),
+        ("Android", [.kotlin, .jetpackCompose, .androidJava]),
+        ("Cross-platform", [.reactNative, .flutter]),
+        ("JavaScript / TypeScript", [.nodejs, .angular, .react, .vue, .nextjs, .express, .nestjs]),
+        ("Python", [.django, .flask, .fastapi, .purepy]),
+        ("Database", [.postgresql, .mysql, .mongodb, .redis, .sqlite]),
+        ("Systems", [.rust, .go]),
+        ("Java / JVM", [.java, .spring]),
+        ("Infrastructure", [.docker, .kubernetes, .terraform])
+    ]
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
             HStack {
                 Text("Framework Settings")
                     .font(.title2)
@@ -24,53 +35,52 @@ struct FrameworkSettingsView: View {
             
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Enable or disable frameworks to customize which options appear when creating nodes.")
+                    Text("Enable frameworks globally. The Properties panel only shows frameworks assumed for the selected Pod Type.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .padding(.horizontal)
                         .padding(.top)
                     
-                    // Framework categories
-                    FrameworkCategorySection(
-                        title: "JavaScript/TypeScript",
-                        frameworks: [.nodejs, .angular, .react, .vue, .nextjs, .express, .nestjs],
-                        frameworkManager: frameworkManager
-                    )
+                    // Pod type → framework cheat sheet
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Pod Type → Framework")
+                            .font(.headline)
+                        ForEach(PodType.allCases) { type in
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: type.icon)
+                                        .foregroundColor(type.color)
+                                    Text(type.rawValue)
+                                        .fontWeight(.semibold)
+                                    Text("default: \(type.defaultFramework.rawValue)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                Text(type.compatibleFrameworks.map(\.rawValue).joined(separator: " · "))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    .padding()
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(8)
+                    .padding(.horizontal)
                     
-                    FrameworkCategorySection(
-                        title: "Python",
-                        frameworks: [.django, .flask, .fastapi, .purepy],
-                        frameworkManager: frameworkManager
-                    )
-                    
-                    FrameworkCategorySection(
-                        title: "Systems Programming",
-                        frameworks: [.rust, .go],
-                        frameworkManager: frameworkManager
-                    )
-                    
-                    FrameworkCategorySection(
-                        title: "Swift",
-                        frameworks: [.swift, .swiftui],
-                        frameworkManager: frameworkManager
-                    )
-                    
-                    FrameworkCategorySection(
-                        title: "Java",
-                        frameworks: [.java, .spring],
-                        frameworkManager: frameworkManager
-                    )
-                    
-                    FrameworkCategorySection(
-                        title: "Infrastructure",
-                        frameworks: [.docker, .kubernetes, .terraform],
-                        frameworkManager: frameworkManager
-                    )
+                    ForEach(categories, id: \.title) { category in
+                        FrameworkCategorySection(
+                            title: category.title,
+                            frameworks: category.frameworks,
+                            frameworkManager: frameworkManager
+                        )
+                    }
                 }
-                .padding()
+                .padding(.bottom)
             }
         }
-        .frame(width: 600, height: 500)
+        .frame(width: 640, height: 560)
     }
 }
 
@@ -98,6 +108,7 @@ struct FrameworkCategorySection: View {
         .padding()
         .background(Color(NSColor.controlBackgroundColor))
         .cornerRadius(8)
+        .padding(.horizontal)
     }
 }
 
@@ -127,4 +138,3 @@ struct FrameworkToggleRow: View {
         .contentShape(Rectangle())
     }
 }
-

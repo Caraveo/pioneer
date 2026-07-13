@@ -111,11 +111,11 @@ struct AIPromptInput: View {
     
     private var placeholderText: String {
         if aiService.selectedTemplate != .custom {
-            return aiService.selectedTemplate.userPromptPrefix.isEmpty ? 
-                "Ask AI to generate code..." : 
-                aiService.selectedTemplate.userPromptPrefix
+            return aiService.selectedTemplate.userPromptPrefix.isEmpty ?
+                "Describe what this pod should do — AI writes CODE (pod language) + YAML..." :
+                aiService.selectedTemplate.userPromptPrefix + " (CODE + YAML for selected pod)"
         }
-        return "Ask AI to generate code..."
+        return "Describe what this pod should do — AI uses that pod’s type/framework/files..."
     }
 }
 

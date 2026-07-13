@@ -4,7 +4,7 @@ struct FileBrowserView: View {
     @EnvironmentObject var projectManager: ProjectManager
     @Binding var selectedFileId: UUID?
     
-    let node: Node
+    let pod: Pod
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -31,7 +31,7 @@ struct FileBrowserView: View {
             Divider()
             
             // File list
-            if node.files.isEmpty {
+            if pod.files.isEmpty {
                 VStack {
                     Spacer()
                     Text("No files")
@@ -46,7 +46,7 @@ struct FileBrowserView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
-                        ForEach(node.files) { file in
+                        ForEach(pod.files) { file in
                             FileRowView(
                                 file: file,
                                 isSelected: selectedFileId == file.id,
@@ -56,7 +56,7 @@ struct FileBrowserView: View {
                                 onDelete: {
                                     deleteFile(file.id)
                                 },
-                                node: node
+                                pod: pod
                             )
                         }
                     }
@@ -70,56 +70,56 @@ struct FileBrowserView: View {
     
     private func selectFile(_ fileId: UUID) {
         // Save current file before switching
-        projectManager.saveCurrentNodeFiles()
+        projectManager.saveCurrentPodFiles()
         
         selectedFileId = fileId
-        if let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
-            projectManager.nodes[index].selectedFileId = fileId
-            projectManager.selectedNode = projectManager.nodes[index]
+        if let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }) {
+            projectManager.pods[index].selectedFileId = fileId
+            projectManager.selectedPod = projectManager.pods[index]
         }
     }
     
     private func addNewFile() {
         // Save current file before adding new one
-        projectManager.saveCurrentNodeFiles()
+        projectManager.saveCurrentPodFiles()
         
         let newFile = ProjectFile(
-            path: "new_file.\(node.framework.primaryLanguage.fileExtension)",
-            name: "new_file.\(node.framework.primaryLanguage.fileExtension)",
+            path: "new_file.\(pod.framework.primaryLanguage.fileExtension)",
+            name: "new_file.\(pod.framework.primaryLanguage.fileExtension)",
             content: "",
-            language: node.framework.primaryLanguage
+            language: pod.framework.primaryLanguage
         )
         
-        if let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }) {
-            projectManager.nodes[index].files.append(newFile)
-            projectManager.nodes[index].selectedFileId = newFile.id
-            projectManager.selectedNode = projectManager.nodes[index]
+        if let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }) {
+            projectManager.pods[index].files.append(newFile)
+            projectManager.pods[index].selectedFileId = newFile.id
+            projectManager.selectedPod = projectManager.pods[index]
         }
     }
     
     private func deleteFile(_ fileId: UUID) {
         // Save current file before deleting
-        projectManager.saveCurrentNodeFiles()
+        projectManager.saveCurrentPodFiles()
         
-        guard let index = projectManager.nodes.firstIndex(where: { $0.id == node.id }),
-              index < projectManager.nodes.count,
-              let fileToDelete = projectManager.nodes[index].files.first(where: { $0.id == fileId }) else {
+        guard let index = projectManager.pods.firstIndex(where: { $0.id == pod.id }),
+              index < projectManager.pods.count,
+              let fileToDelete = projectManager.pods[index].files.first(where: { $0.id == fileId }) else {
             return
         }
         
         // Don't allow deleting the last file (must keep at least one)
-        if projectManager.nodes[index].files.count <= 1 {
+        if projectManager.pods[index].files.count <= 1 {
             // Create a new main file if trying to delete the last one
-            let mainFile = projectManager.nodes[index].getOrCreateMainFile()
+            let mainFile = projectManager.pods[index].getOrCreateMainFile()
             if mainFile.id != fileId {
                 // Only delete if it's not the main file
                 // Remove the file from the array
-                projectManager.nodes[index].files.removeAll { $0.id == fileId }
+                projectManager.pods[index].files.removeAll { $0.id == fileId }
                 
                 // Delete from disk
                 Task {
                     do {
-                        try await projectManager.nodeProjectService.deleteFile(node: projectManager.nodes[index], file: fileToDelete)
+                        try await projectManager.podProjectService.deleteFile(pod: projectManager.pods[index], file: fileToDelete)
                     } catch {
                         print("Failed to delete file from disk: \(error)")
                     }
@@ -127,12 +127,12 @@ struct FileBrowserView: View {
             }
         } else {
             // Remove the file from the array
-            projectManager.nodes[index].files.removeAll { $0.id == fileId }
+            projectManager.pods[index].files.removeAll { $0.id == fileId }
             
             // Delete from disk
             Task {
                 do {
-                    try await projectManager.nodeProjectService.deleteFile(node: projectManager.nodes[index], file: fileToDelete)
+                    try await projectManager.podProjectService.deleteFile(pod: projectManager.pods[index], file: fileToDelete)
                 } catch {
                     print("Failed to delete file from disk: \(error)")
                 }
@@ -140,19 +140,19 @@ struct FileBrowserView: View {
         }
         
         // If deleted file was selected, select first file or none
-        if projectManager.nodes[index].selectedFileId == fileId {
-            projectManager.nodes[index].selectedFileId = projectManager.nodes[index].files.first?.id
+        if projectManager.pods[index].selectedFileId == fileId {
+            projectManager.pods[index].selectedFileId = projectManager.pods[index].files.first?.id
         }
         
-        // Update selected node
-        projectManager.selectedNode = projectManager.nodes[index]
+        // Update selected pod
+        projectManager.selectedPod = projectManager.pods[index]
         
         // Ensure at least one file exists (main file)
-        if projectManager.nodes[index].files.isEmpty {
-            let mainFile = projectManager.nodes[index].getOrCreateMainFile()
-            projectManager.nodes[index].files.append(mainFile)
-            projectManager.nodes[index].selectedFileId = mainFile.id
-            projectManager.selectedNode = projectManager.nodes[index]
+        if projectManager.pods[index].files.isEmpty {
+            let mainFile = projectManager.pods[index].getOrCreateMainFile()
+            projectManager.pods[index].files.append(mainFile)
+            projectManager.pods[index].selectedFileId = mainFile.id
+            projectManager.selectedPod = projectManager.pods[index]
         }
     }
 }
@@ -162,7 +162,7 @@ struct FileRowView: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onDelete: () -> Void
-    let node: Node
+    let pod: Pod
     @EnvironmentObject var projectManager: ProjectManager
     
     @State private var isHovered = false
@@ -236,8 +236,8 @@ struct FileRowView: View {
     }
     
     private func finishRenaming() {
-        guard let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == node.id }),
-              let fileIndex = projectManager.nodes[nodeIndex].files.firstIndex(where: { $0.id == file.id }) else {
+        guard let podIndex = projectManager.pods.firstIndex(where: { $0.id == pod.id }),
+              let fileIndex = projectManager.pods[podIndex].files.firstIndex(where: { $0.id == file.id }) else {
             isRenaming = false
             return
         }
@@ -248,28 +248,28 @@ struct FileRowView: View {
             return
         }
         
-        let oldName = projectManager.nodes[nodeIndex].files[fileIndex].name
-        let oldPath = projectManager.nodes[nodeIndex].files[fileIndex].path
+        let oldName = projectManager.pods[podIndex].files[fileIndex].name
+        let oldPath = projectManager.pods[podIndex].files[fileIndex].path
         
         // Update file name and path
-        projectManager.nodes[nodeIndex].files[fileIndex].name = newName
+        projectManager.pods[podIndex].files[fileIndex].name = newName
         
         // Update path - preserve directory structure but update filename
         let pathComponents = oldPath.split(separator: "/")
         if pathComponents.count > 1 {
             // Has directory structure, preserve it
             let directory = pathComponents.dropLast().joined(separator: "/")
-            projectManager.nodes[nodeIndex].files[fileIndex].path = "\(directory)/\(newName)"
+            projectManager.pods[podIndex].files[fileIndex].path = "\(directory)/\(newName)"
         } else {
             // Just filename, update it
-            projectManager.nodes[nodeIndex].files[fileIndex].path = newName
+            projectManager.pods[podIndex].files[fileIndex].path = newName
         }
         
         // Rename file in file system if it exists
-        if let projectPath = projectManager.nodes[nodeIndex].projectPath {
+        if let projectPath = projectManager.pods[podIndex].projectPath {
             let projectURL = URL(fileURLWithPath: projectPath)
             let oldFileURL = projectURL.appendingPathComponent(oldPath)
-            let newFileURL = projectURL.appendingPathComponent(projectManager.nodes[nodeIndex].files[fileIndex].path)
+            let newFileURL = projectURL.appendingPathComponent(projectManager.pods[podIndex].files[fileIndex].path)
             
             do {
                 // Create directory if needed
@@ -285,12 +285,12 @@ struct FileRowView: View {
             } catch {
                 print("Failed to rename file: \(error)")
                 // Revert changes on error
-                projectManager.nodes[nodeIndex].files[fileIndex].name = oldName
-                projectManager.nodes[nodeIndex].files[fileIndex].path = oldPath
+                projectManager.pods[podIndex].files[fileIndex].name = oldName
+                projectManager.pods[podIndex].files[fileIndex].path = oldPath
             }
         }
         
-        projectManager.selectedNode = projectManager.nodes[nodeIndex]
+        projectManager.selectedPod = projectManager.pods[podIndex]
         isRenaming = false
     }
     

@@ -7,13 +7,13 @@ struct SidebarView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack {
-                Text("Nodes")
+                Text("Pods")
                     .font(.headline)
                     .padding(.horizontal)
                     .padding(.vertical, 8)
                 Spacer()
                 Button(action: {
-                    projectManager.createNewNode()
+                    projectManager.createNewPod()
                 }) {
                     Image(systemName: "plus.circle.fill")
                         .foregroundColor(.accentColor)
@@ -25,31 +25,31 @@ struct SidebarView: View {
             
             Divider()
             
-            // Node list
+            // Pod list
             List(selection: Binding(
-                get: { projectManager.selectedNode?.id },
+                get: { projectManager.selectedPod?.id },
                 set: { newId in
-                    // Get webView for current node before switching
-                    if let currentNode = projectManager.selectedNode,
-                       currentNode.selectedFileId != nil {
+                    // Get webView for current pod before switching
+                    if let currentPod = projectManager.selectedPod,
+                       currentPod.selectedFileId != nil {
                         // Access webViewStore through a notification or callback
-                        // For now, save immediately from nodes array
-                        projectManager.saveCurrentNodeFiles()
+                        // For now, save immediately from pods array
+                        projectManager.saveCurrentPodFiles()
                     }
                     
                     // Switch after brief delay to allow save
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         if let newId = newId {
-                            if let index = projectManager.nodes.firstIndex(where: { $0.id == newId }) {
-                                projectManager.selectedNode = projectManager.nodes[index]
+                            if let index = projectManager.pods.firstIndex(where: { $0.id == newId }) {
+                                projectManager.selectedPod = projectManager.pods[index]
                             }
                         }
                     }
                 }
             )) {
-                ForEach(projectManager.nodes) { node in
-                    NodeRowView(node: node)
-                        .tag(node.id)
+                ForEach(projectManager.pods) { pod in
+                    PodRowView(pod: pod)
+                        .tag(pod.id)
                 }
             }
             .listStyle(.sidebar)
@@ -57,35 +57,35 @@ struct SidebarView: View {
     }
 }
 
-struct NodeRowView: View {
-    let node: Node
+struct PodRowView: View {
+    let pod: Pod
     @EnvironmentObject var projectManager: ProjectManager
     
-    // Get the current node from projectManager to ensure we always show the latest name
-    private var currentNode: Node? {
-        projectManager.nodes.first(where: { $0.id == node.id })
+    // Get the current pod from projectManager to ensure we always show the latest name
+    private var currentPod: Pod? {
+        projectManager.pods.first(where: { $0.id == pod.id })
     }
     
     var body: some View {
-        // Use currentNode if available, otherwise fallback to passed node
-        let displayNode = currentNode ?? node
+        // Use currentPod if available, otherwise fallback to passed pod
+        let displayPod = currentPod ?? pod
         
         return HStack {
-            Image(systemName: displayNode.type.icon)
-                .foregroundColor(displayNode.type.color)
+            Image(systemName: displayPod.type.icon)
+                .foregroundColor(displayPod.type.color)
                 .frame(width: 20)
             
             VStack(alignment: .leading, spacing: 2) {
-                Text(displayNode.name)
+                Text(displayPod.name)
                     .font(.system(size: 13, weight: .medium))
-                Text(displayNode.type.rawValue)
+                Text(displayPod.type.rawValue)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
             
             Spacer()
             
-            if !displayNode.connections.isEmpty {
+            if !displayPod.connections.isEmpty {
                 Image(systemName: "link")
                     .foregroundColor(.secondary)
                     .font(.system(size: 10))
@@ -94,10 +94,10 @@ struct NodeRowView: View {
         .padding(.vertical, 4)
         .contextMenu {
             Button("Delete") {
-                if let nodeToDelete = currentNode {
-                    projectManager.deleteNode(nodeToDelete)
+                if let podToDelete = currentPod {
+                    projectManager.deletePod(podToDelete)
                 } else {
-                    projectManager.deleteNode(node)
+                    projectManager.deletePod(pod)
                 }
             }
         }

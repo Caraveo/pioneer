@@ -25,11 +25,11 @@ class ProjectSettings: ObservableObject {
     }
     
     /// Get the full path for a project
-    func getProjectPath(projectName: String, nodeId: UUID) -> URL {
+    func getProjectPath(projectName: String, podId: UUID) -> URL {
         let baseURL = URL(fileURLWithPath: projectsBasePath)
         let projectDir = baseURL.appendingPathComponent(projectName)
-        let nodeDir = projectDir.appendingPathComponent(nodeId.uuidString)
-        return nodeDir
+        let podDir = projectDir.appendingPathComponent(podId.uuidString)
+        return podDir
     }
     
     /// Reset to default path

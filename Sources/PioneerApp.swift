@@ -61,8 +61,8 @@ struct PioneerApp: App {
                 
                 Divider()
                 
-                Button("New Node") {
-                    projectManager.createNewNode()
+                Button("New Pod") {
+                    projectManager.createNewPod()
                 }
                 .keyboardShortcut("n", modifiers: .command)
             }

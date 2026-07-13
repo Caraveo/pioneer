@@ -13,14 +13,14 @@ struct PropertyBarView: View {
                     .padding(.horizontal)
                     .padding(.top, 12)
                 
-                if let selectedNode = projectManager.selectedNode {
-                    Text(selectedNode.name)
+                if let selectedPod = projectManager.selectedPod {
+                    Text(selectedPod.name)
                         .font(.title3)
                         .fontWeight(.semibold)
                         .padding(.horizontal)
                         .padding(.bottom, 8)
                 } else {
-                    Text("No Node Selected")
+                    Text("No Pod Selected")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .padding(.horizontal)
@@ -32,20 +32,19 @@ struct PropertyBarView: View {
             Divider()
             
             // Properties
-            if let selectedNode = projectManager.selectedNode,
-               let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == selectedNode.id }) {
+            if let selectedPod = projectManager.selectedPod,
+               let podIndex = projectManager.pods.firstIndex(where: { $0.id == selectedPod.id }) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        // Node Type
-                        PropertySection(title: "Node Type") {
+                        // Pod Type → constrains Framework options
+                        PropertySection(title: "Pod Type") {
                             Picker("Type", selection: Binding(
-                                get: { projectManager.nodes[nodeIndex].type },
+                                get: { projectManager.pods[podIndex].type },
                                 set: { newType in
-                                    projectManager.nodes[nodeIndex].type = newType
-                                    projectManager.selectedNode = projectManager.nodes[nodeIndex]
+                                    applyPodType(newType, podIndex: podIndex)
                                 }
                             )) {
-                                ForEach(NodeType.allCases) { type in
+                                ForEach(PodType.allCases) { type in
                                     HStack {
                                         Image(systemName: type.icon)
                                         Text(type.rawValue)
@@ -54,20 +53,32 @@ struct PropertyBarView: View {
                                 }
                             }
                             .pickerStyle(.menu)
+                            
+                            Text(projectManager.pods[podIndex].type.frameworkHint)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         
                         Divider()
                         
-                        // Framework
+                        // Framework filtered by Pod Type (+ user enable flags)
                         PropertySection(title: "Framework") {
+                            let type = projectManager.pods[podIndex].type
+                            let options = frameworkManager.availableFrameworks(for: type)
+                            
                             Picker("Framework", selection: Binding(
-                                get: { projectManager.nodes[nodeIndex].framework },
+                                get: {
+                                    let current = projectManager.pods[podIndex].framework
+                                    if options.contains(current) { return current }
+                                    return type.defaultFramework
+                                },
                                 set: { newFramework in
-                                    projectManager.nodes[nodeIndex].framework = newFramework
-                                    projectManager.updateNode(projectManager.nodes[nodeIndex])
+                                    projectManager.pods[podIndex].framework = newFramework
+                                    projectManager.updatePod(projectManager.pods[podIndex])
                                 }
                             )) {
-                                ForEach(frameworkManager.availableFrameworks, id: \.self) { framework in
+                                ForEach(options, id: \.self) { framework in
                                     HStack {
                                         Image(systemName: framework.icon)
                                         Text(framework.rawValue)
@@ -76,6 +87,57 @@ struct PropertyBarView: View {
                                 }
                             }
                             .pickerStyle(.menu)
+                            
+                            Text("Assumed stack for \(type.rawValue). Each pod is its own Kubernetes Pod.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        
+                        Divider()
+                        
+                        PropertySection(title: "Kubernetes") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Image: \(KubernetesManifestService.containerImage(for: projectManager.pods[podIndex].framework))")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                
+                                Button {
+                                    projectManager.pods[podIndex].regenerateKubernetesYAML()
+                                    projectManager.selectedPod = projectManager.pods[podIndex]
+                                    if let path = projectManager.pods[podIndex].projectPath {
+                                        try? KubernetesManifestService.writeYAML(
+                                            projectManager.pods[podIndex].kubernetesYAML,
+                                            to: URL(fileURLWithPath: path)
+                                        )
+                                    }
+                                    projectManager.viewMode = .yaml
+                                } label: {
+                                    Label("Open YAML", systemImage: "shippingbox")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                        
+                        Divider()
+                        
+                        PropertySection(title: "Git") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("This pod is its own git repository — Android, Apple, and Web teams scale independently.")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                
+                                Button {
+                                    projectManager.selectedPod = projectManager.pods[podIndex]
+                                    projectManager.viewMode = .git
+                                } label: {
+                                    Label("Open Git", systemImage: "arrow.triangle.branch")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.bordered)
+                            }
                         }
                         
                         Divider()
@@ -87,10 +149,10 @@ struct PropertyBarView: View {
                                     Text("X:")
                                         .frame(width: 30, alignment: .leading)
                                     TextField("X", value: Binding(
-                                        get: { Double(projectManager.nodes[nodeIndex].position.x) },
+                                        get: { Double(projectManager.pods[podIndex].position.x) },
                                         set: { newX in
-                                            projectManager.nodes[nodeIndex].position.x = CGFloat(newX)
-                                            projectManager.selectedNode = projectManager.nodes[nodeIndex]
+                                            projectManager.pods[podIndex].position.x = CGFloat(newX)
+                                            projectManager.selectedPod = projectManager.pods[podIndex]
                                         }
                                     ), format: .number)
                                     .textFieldStyle(.roundedBorder)
@@ -100,10 +162,10 @@ struct PropertyBarView: View {
                                     Text("Y:")
                                         .frame(width: 30, alignment: .leading)
                                     TextField("Y", value: Binding(
-                                        get: { Double(projectManager.nodes[nodeIndex].position.y) },
+                                        get: { Double(projectManager.pods[podIndex].position.y) },
                                         set: { newY in
-                                            projectManager.nodes[nodeIndex].position.y = CGFloat(newY)
-                                            projectManager.selectedNode = projectManager.nodes[nodeIndex]
+                                            projectManager.pods[podIndex].position.y = CGFloat(newY)
+                                            projectManager.selectedPod = projectManager.pods[podIndex]
                                         }
                                     ), format: .number)
                                     .textFieldStyle(.roundedBorder)
@@ -116,21 +178,21 @@ struct PropertyBarView: View {
                         // Connections
                         PropertySection(title: "Connections") {
                             VStack(alignment: .leading, spacing: 4) {
-                                if selectedNode.connections.isEmpty {
+                                if selectedPod.connections.isEmpty {
                                     Text("No connections")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 } else {
-                                    ForEach(selectedNode.connections, id: \.self) { connectionId in
-                                        if let connectedNode = projectManager.nodes.first(where: { $0.id == connectionId }) {
+                                    ForEach(selectedPod.connections, id: \.self) { connectionId in
+                                        if let connectedPod = projectManager.pods.first(where: { $0.id == connectionId }) {
                                             HStack {
-                                                Image(systemName: connectedNode.type.icon)
-                                                    .foregroundColor(connectedNode.type.color)
-                                                Text(connectedNode.name)
+                                                Image(systemName: connectedPod.type.icon)
+                                                    .foregroundColor(connectedPod.type.color)
+                                                Text(connectedPod.name)
                                                     .font(.caption)
                                                 Spacer()
                                                 Button(action: {
-                                                    projectManager.disconnectNodes(from: selectedNode.id, to: connectionId)
+                                                    projectManager.disconnectPods(from: selectedPod.id, to: connectionId)
                                                 }) {
                                                     Image(systemName: "xmark.circle.fill")
                                                         .foregroundColor(.secondary)
@@ -145,15 +207,15 @@ struct PropertyBarView: View {
                         }
                         
                         // Python Requirements (if Python framework)
-                        if [.django, .flask, .fastapi, .purepy].contains(selectedNode.framework) {
+                        if [.django, .flask, .fastapi, .purepy].contains(selectedPod.framework) {
                             Divider()
                             
                             PropertySection(title: "Python Requirements") {
                                 TextEditor(text: Binding(
-                                    get: { projectManager.nodes[nodeIndex].pythonRequirements },
+                                    get: { projectManager.pods[podIndex].pythonRequirements },
                                     set: { newRequirements in
-                                        projectManager.nodes[nodeIndex].pythonRequirements = newRequirements
-                                        projectManager.updateNode(projectManager.nodes[nodeIndex])
+                                        projectManager.pods[podIndex].pythonRequirements = newRequirements
+                                        projectManager.updatePod(projectManager.pods[podIndex])
                                     }
                                 ))
                                 .font(.system(size: 11, design: .monospaced))
@@ -168,14 +230,14 @@ struct PropertyBarView: View {
                         
                         // Project Path
                         PropertySection(title: "Project Path") {
-                            if let projectPath = selectedNode.projectPath {
+                            if let projectPath = selectedPod.projectPath {
                                 Text(projectPath)
                                     .font(.system(size: 10, design: .monospaced))
                                     .foregroundColor(.secondary)
                                     .textSelection(.enabled)
                                 
                                 Button(action: {
-                                    projectManager.openNodeProjectInFinder(selectedNode)
+                                    projectManager.openPodProjectInFinder(selectedPod)
                                 }) {
                                     HStack {
                                         Image(systemName: "folder")
@@ -196,14 +258,14 @@ struct PropertyBarView: View {
                         // Files
                         PropertySection(title: "Files") {
                             VStack(alignment: .leading, spacing: 4) {
-                                ForEach(selectedNode.files) { file in
+                                ForEach(selectedPod.files) { file in
                                     HStack {
                                         Image(systemName: file.language.icon)
                                             .foregroundColor(file.language.color)
                                         Text(file.name)
                                             .font(.caption)
                                         Spacer()
-                                        if file.id == selectedNode.selectedFileId {
+                                        if file.id == selectedPod.selectedFileId {
                                             Image(systemName: "checkmark.circle.fill")
                                                 .foregroundColor(.accentColor)
                                                 .font(.system(size: 10))
@@ -212,8 +274,8 @@ struct PropertyBarView: View {
                                     .padding(.vertical, 2)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
-                                        projectManager.nodes[nodeIndex].selectedFileId = file.id
-                                        projectManager.selectedNode = projectManager.nodes[nodeIndex]
+                                        projectManager.pods[podIndex].selectedFileId = file.id
+                                        projectManager.selectedPod = projectManager.pods[podIndex]
                                     }
                                 }
                             }
@@ -225,7 +287,7 @@ struct PropertyBarView: View {
             } else {
                 VStack {
                     Spacer()
-                    Text("Select a node to view its properties")
+                    Text("Select a pod to view its properties")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -235,6 +297,22 @@ struct PropertyBarView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(NSColor.textBackgroundColor))
             }
+        }
+    }
+    
+    /// When Pod Type changes, snap Framework to a compatible default if needed.
+    private func applyPodType(_ newType: PodType, podIndex: Int) {
+        guard podIndex < projectManager.pods.count else { return }
+        let previous = projectManager.pods[podIndex].framework
+        let resolved = newType.resolvedFramework(current: previous)
+        
+        projectManager.pods[podIndex].type = newType
+        if resolved != previous {
+            projectManager.pods[podIndex].framework = resolved
+            // Rebuild launch file + K8s assumptions for the new stack
+            projectManager.updatePod(projectManager.pods[podIndex])
+        } else {
+            projectManager.selectedPod = projectManager.pods[podIndex]
         }
     }
 }

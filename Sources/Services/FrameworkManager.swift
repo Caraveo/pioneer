@@ -27,6 +27,11 @@ class FrameworkManager: ObservableObject {
         return Framework.allCases.filter { enabledFrameworks.contains($0) }
     }
     
+    /// Frameworks enabled **and** compatible with the selected pod type.
+    func availableFrameworks(for podType: PodType) -> [Framework] {
+        podType.compatibleFrameworks.filter { enabledFrameworks.contains($0) }
+    }
+    
     private func loadEnabledFrameworks() {
         if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
            let frameworkStrings = try? JSONDecoder().decode([String].self, from: data) {

@@ -24,20 +24,20 @@ class PythonBridge {
         initializePythonScripts()
     }
     
-    /// Get the virtual environment path for a node
-    func getVirtualEnvironmentPath(for node: Node) -> URL {
-        return environmentsPath.appendingPathComponent(node.id.uuidString)
+    /// Get the virtual environment path for a pod
+    func getVirtualEnvironmentPath(for pod: Pod) -> URL {
+        return environmentsPath.appendingPathComponent(pod.id.uuidString)
     }
     
-    /// Ensure a virtual environment exists for a Python node
-    func ensureVirtualEnvironment(for node: Node) async {
-        let venvPath = getVirtualEnvironmentPath(for: node)
+    /// Ensure a virtual environment exists for a Python pod
+    func ensureVirtualEnvironment(for pod: Pod) async {
+        let venvPath = getVirtualEnvironmentPath(for: pod)
         let venvPython = venvPath.appendingPathComponent("bin").appendingPathComponent("python3")
         
         // Check if virtual environment already exists
         if FileManager.default.fileExists(atPath: venvPython.path) {
             // Update requirements if needed
-            await updatePythonRequirements(for: node)
+            await updatePythonRequirements(for: pod)
             return
         }
         
@@ -55,13 +55,13 @@ class PythonBridge {
             process.waitUntilExit()
             
             if process.terminationStatus == 0 {
-                // Update the node with the environment path
+                // Update the pod with the environment path
                 // Note: This would need to be handled by ProjectManager
-                print("Created virtual environment for node: \(node.name) at \(venvPath.path)")
+                print("Created virtual environment for pod: \(pod.name) at \(venvPath.path)")
                 
                 // Install requirements if any
-                if !node.pythonRequirements.isEmpty {
-                    await updatePythonRequirements(for: node)
+                if !pod.pythonRequirements.isEmpty {
+                    await updatePythonRequirements(for: pod)
                 }
             } else {
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
@@ -74,19 +74,19 @@ class PythonBridge {
         }
     }
     
-    /// Update Python requirements for a node
-    func updatePythonRequirements(for node: Node) async {
-        let venvPath = getVirtualEnvironmentPath(for: node)
+    /// Update Python requirements for a pod
+    func updatePythonRequirements(for pod: Pod) async {
+        let venvPath = getVirtualEnvironmentPath(for: pod)
         let venvPip = venvPath.appendingPathComponent("bin").appendingPathComponent("pip3")
         
         guard FileManager.default.fileExists(atPath: venvPip.path) else {
-            print("Virtual environment not found for node: \(node.name)")
+            print("Virtual environment not found for pod: \(pod.name)")
             return
         }
         
         // Write requirements.txt
         let requirementsFile = venvPath.appendingPathComponent("requirements.txt")
-        try? node.pythonRequirements.write(to: requirementsFile, atomically: true, encoding: .utf8)
+        try? pod.pythonRequirements.write(to: requirementsFile, atomically: true, encoding: .utf8)
         
         // Install requirements
         let process = Process()
@@ -120,10 +120,10 @@ class PythonBridge {
         from pathlib import Path
 
         def generate_iphone_app(node_data):
-            \"\"\"Generate an iPhone app from node data\"\"\"
-            node = json.loads(node_data)
-            app_name = node.get('name', 'GeneratedApp')
-            code = node.get('code', '')
+            \"\"\"Generate an iPhone app from pod data\"\"\"
+            pod = json.loads(node_data)
+            app_name = pod.get('name', 'GeneratedApp')
+            code = pod.get('code', '')
             
             output_dir = Path(f"generated/{app_name}")
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -168,10 +168,10 @@ class PythonBridge {
             return str(output_dir.absolute())
 
         def generate_website(node_data):
-            \"\"\"Generate a website from node data\"\"\"
-            node = json.loads(node_data)
-            site_name = node.get('name', 'GeneratedSite')
-            code = node.get('code', '')
+            \"\"\"Generate a website from pod data\"\"\"
+            pod = json.loads(node_data)
+            site_name = pod.get('name', 'GeneratedSite')
+            code = pod.get('code', '')
             
             output_dir = Path(f"generated/{site_name}")
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -233,8 +233,8 @@ class PythonBridge {
 
         def deploy_to_aws(node_data):
             \"\"\"Deploy backend to AWS\"\"\"
-            node = json.loads(node_data)
-            backend_name = node.get('name', 'GeneratedBackend')
+            pod = json.loads(node_data)
+            backend_name = pod.get('name', 'GeneratedBackend')
             
             # This is a stub - would integrate with AWS SDK
             print(f"Deploying {backend_name} to AWS...")
@@ -281,38 +281,38 @@ class PythonBridge {
         process.waitUntilExit()
     }
     
-    func generateiPhoneApp(node: Node) async {
-        await runPythonScript(action: "generate_iphone_app", node: node)
+    func generateiPhoneApp(pod: Pod) async {
+        await runPythonScript(action: "generate_iphone_app", pod: pod)
     }
     
-    func generateWebsite(node: Node) async {
-        await runPythonScript(action: "generate_website", node: node)
+    func generateWebsite(pod: Pod) async {
+        await runPythonScript(action: "generate_website", pod: pod)
     }
     
-    func deployToAWS(node: Node) async {
-        await runPythonScript(action: "deploy_to_aws", node: node)
+    func deployToAWS(pod: Pod) async {
+        await runPythonScript(action: "deploy_to_aws", pod: pod)
     }
     
-    /// Execute Python code in a node's virtual environment
-    func executePythonCode(for node: Node) async -> String? {
-        guard node.language == .python else {
+    /// Execute Python code in a pod's virtual environment
+    func executePythonCode(for pod: Pod) async -> String? {
+        guard pod.language == .python else {
             return nil
         }
         
         // Ensure virtual environment exists
-        await ensureVirtualEnvironment(for: node)
+        await ensureVirtualEnvironment(for: pod)
         
-        let venvPath = getVirtualEnvironmentPath(for: node)
+        let venvPath = getVirtualEnvironmentPath(for: pod)
         let venvPython = venvPath.appendingPathComponent("bin").appendingPathComponent("python3")
         
         guard FileManager.default.fileExists(atPath: venvPython.path) else {
             return "Error: Virtual environment not found"
         }
         
-        // Write node code to a temporary file
+        // Write pod code to a temporary file
         let tempScript = venvPath.appendingPathComponent("node_script.py")
         do {
-            try node.code.write(to: tempScript, atomically: true, encoding: .utf8)
+            try pod.code.write(to: tempScript, atomically: true, encoding: .utf8)
         } catch {
             return "Error: Failed to write script file: \(error.localizedDescription)"
         }
@@ -341,24 +341,24 @@ class PythonBridge {
         }
     }
     
-    private func runPythonScript(action: String, node: Node) async {
-        // For Python nodes, use their virtual environment
-        if node.language == .python {
+    private func runPythonScript(action: String, pod: Pod) async {
+        // For Python pods, use their virtual environment
+        if pod.language == .python {
             // Ensure virtual environment exists
-            await ensureVirtualEnvironment(for: node)
+            await ensureVirtualEnvironment(for: pod)
             
-            let venvPath = getVirtualEnvironmentPath(for: node)
+            let venvPath = getVirtualEnvironmentPath(for: pod)
             let venvPython = venvPath.appendingPathComponent("bin").appendingPathComponent("python3")
             
             guard FileManager.default.fileExists(atPath: venvPython.path) else {
                 await MainActor.run {
-                    showAlert(title: "Error", message: "Virtual environment not found for node: \(node.name)")
+                    showAlert(title: "Error", message: "Virtual environment not found for pod: \(pod.name)")
                 }
                 return
             }
             
             // Create a script that uses the generator functions
-            let scriptContent = createNodeExecutionScript(action: action, node: node)
+            let scriptContent = createPodExecutionScript(action: action, pod: pod)
             let scriptFile = venvPath.appendingPathComponent("execute.py")
             
             do {
@@ -370,7 +370,7 @@ class PythonBridge {
                 return
             }
             
-            // Run using the node's virtual environment Python
+            // Run using the pod's virtual environment Python
             let process = Process()
             process.executableURL = venvPython
             process.arguments = [scriptFile.path]
@@ -397,15 +397,15 @@ class PythonBridge {
                 }
             }
         } else {
-            // For non-Python nodes, use system Python with shared generator script
+            // For non-Python pods, use system Python with shared generator script
             let scriptURL = pythonScriptsPath.appendingPathComponent("generator.py")
             
-            // Convert node to JSON
+            // Convert pod to JSON
             let encoder = JSONEncoder()
-            guard let nodeData = try? encoder.encode(node),
-                  let nodeJSON = String(data: nodeData, encoding: .utf8) else {
+            guard let podData = try? encoder.encode(pod),
+                  let podJSON = String(data: podData, encoding: .utf8) else {
                 await MainActor.run {
-                    showAlert(title: "Error", message: "Failed to encode node to JSON")
+                    showAlert(title: "Error", message: "Failed to encode pod to JSON")
                 }
                 return
             }
@@ -413,7 +413,7 @@ class PythonBridge {
             // Run Python script
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-            process.arguments = [scriptURL.path, action, nodeJSON]
+            process.arguments = [scriptURL.path, action, podJSON]
             
             let pipe = Pipe()
             process.standardOutput = pipe
@@ -439,12 +439,12 @@ class PythonBridge {
         }
     }
     
-    private func createNodeExecutionScript(action: String, node: Node) -> String {
-        // Convert node to JSON
+    private func createPodExecutionScript(action: String, pod: Pod) -> String {
+        // Convert pod to JSON
         let encoder = JSONEncoder()
-        guard let nodeData = try? encoder.encode(node),
-              let nodeJSON = String(data: nodeData, encoding: .utf8) else {
-            return "# Error encoding node"
+        guard let podData = try? encoder.encode(pod),
+              let podJSON = String(data: podData, encoding: .utf8) else {
+            return "# Error encoding pod"
         }
         
         // Include the generator functions and execute based on action
@@ -457,11 +457,11 @@ class PythonBridge {
         # Include generator functions
         \(getGeneratorFunctions())
         
-        # Node data
-        node_data = '''\(nodeJSON)'''
+        # Pod data
+        node_data = '''\(podJSON)'''
         
         # Execute based on action
-        node = json.loads(node_data)
+        pod = json.loads(node_data)
         
         if "\(action)" == "generate_iphone_app":
             result = generate_iphone_app(node_data)
@@ -470,9 +470,9 @@ class PythonBridge {
         elif "\(action)" == "deploy_to_aws":
             result = deploy_to_aws(node_data)
         else:
-            # Execute node's own code
-            exec(node.get('code', ''))
-            result = "Node code executed successfully"
+            # Execute pod's own code
+            exec(pod.get('code', ''))
+            result = "Pod code executed successfully"
         
         print(result)
         """
@@ -483,9 +483,9 @@ class PythonBridge {
         def generate_iphone_app(node_data):
             import json
             from pathlib import Path
-            node = json.loads(node_data)
-            app_name = node.get('name', 'GeneratedApp')
-            code = node.get('code', '')
+            pod = json.loads(node_data)
+            app_name = pod.get('name', 'GeneratedApp')
+            code = pod.get('code', '')
             
             output_dir = Path("generated/" + app_name)
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -529,9 +529,9 @@ class PythonBridge {
         def generate_website(node_data):
             import json
             from pathlib import Path
-            node = json.loads(node_data)
-            site_name = node.get('name', 'GeneratedSite')
-            code = node.get('code', '')
+            pod = json.loads(node_data)
+            site_name = pod.get('name', 'GeneratedSite')
+            code = pod.get('code', '')
             
             output_dir = Path("generated/" + site_name)
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -590,8 +590,8 @@ class PythonBridge {
 
         def deploy_to_aws(node_data):
             import json
-            node = json.loads(node_data)
-            backend_name = node.get('name', 'GeneratedBackend')
+            pod = json.loads(node_data)
+            backend_name = pod.get('name', 'GeneratedBackend')
             return "AWS deployment initiated for " + backend_name
         """
     }

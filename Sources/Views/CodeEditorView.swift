@@ -9,35 +9,35 @@ struct CodeEditorView: View {
     var body: some View {
         HStack(spacing: 0) {
             // File browser
-            if let node = projectManager.selectedNode {
+            if let pod = projectManager.selectedPod {
                 FileBrowserView(
                     selectedFileId: Binding(
                         get: {
-                            // Always look up node index fresh to avoid stale indices
-                            guard let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == node.id }),
-                                  nodeIndex < projectManager.nodes.count else {
+                            // Always look up pod index fresh to avoid stale indices
+                            guard let podIndex = projectManager.pods.firstIndex(where: { $0.id == pod.id }),
+                                  podIndex < projectManager.pods.count else {
                                 return nil
                             }
-                            return projectManager.nodes[nodeIndex].selectedFileId
+                            return projectManager.pods[podIndex].selectedFileId
                         },
                         set: { newId in
-                            projectManager.saveCurrentNodeFiles()
-                            // Always look up node index fresh
-                            guard let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == node.id }),
-                                  nodeIndex < projectManager.nodes.count else {
+                            projectManager.saveCurrentPodFiles()
+                            // Always look up pod index fresh
+                            guard let podIndex = projectManager.pods.firstIndex(where: { $0.id == pod.id }),
+                                  podIndex < projectManager.pods.count else {
                                 return
                             }
-                            projectManager.nodes[nodeIndex].selectedFileId = newId
-                            projectManager.selectedNode = projectManager.nodes[nodeIndex]
+                            projectManager.pods[podIndex].selectedFileId = newId
+                            projectManager.selectedPod = projectManager.pods[podIndex]
                         }
                     ),
-                    node: {
-                        // Always get fresh node from array
-                        guard let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == node.id }),
-                              nodeIndex < projectManager.nodes.count else {
-                            return node // Fallback to passed node
+                    pod: {
+                        // Always get fresh pod from array
+                        guard let podIndex = projectManager.pods.firstIndex(where: { $0.id == pod.id }),
+                              podIndex < projectManager.pods.count else {
+                            return pod // Fallback to passed pod
                         }
-                        return projectManager.nodes[nodeIndex]
+                        return projectManager.pods[podIndex]
                     }()
                 )
                 
@@ -46,23 +46,23 @@ struct CodeEditorView: View {
             
             VStack(alignment: .leading, spacing: 0) {
                 // Header
-                if let node = projectManager.selectedNode {
-                    // Always get fresh node from array to avoid stale indices
-                    let currentNode: Node = {
-                        guard let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == node.id }),
-                              nodeIndex < projectManager.nodes.count else {
-                            return node // Fallback to passed node
+                if let pod = projectManager.selectedPod {
+                    // Always get fresh pod from array to avoid stale indices
+                    let currentPod: Pod = {
+                        guard let podIndex = projectManager.pods.firstIndex(where: { $0.id == pod.id }),
+                              podIndex < projectManager.pods.count else {
+                            return pod // Fallback to passed pod
                         }
-                        return projectManager.nodes[nodeIndex]
+                        return projectManager.pods[podIndex]
                     }()
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Image(systemName: currentNode.type.icon)
-                                .foregroundColor(currentNode.type.color)
-                            Text(currentNode.selectedFile?.name ?? currentNode.name)
+                            Image(systemName: currentPod.type.icon)
+                                .foregroundColor(currentPod.type.color)
+                            Text(currentPod.selectedFile?.name ?? currentPod.name)
                                 .font(.headline)
                             
-                            if let selectedFile = currentNode.selectedFile {
+                            if let selectedFile = currentPod.selectedFile {
                                 Text(selectedFile.path)
                                     .font(.caption)
                                     .foregroundColor(.secondary)
@@ -71,18 +71,18 @@ struct CodeEditorView: View {
                             Spacer()
                             
                             Picker("Language", selection: Binding(
-                                get: { currentNode.selectedFile?.language ?? currentNode.framework.primaryLanguage },
+                                get: { currentPod.selectedFile?.language ?? currentPod.framework.primaryLanguage },
                                 set: { newLanguage in
-                                    projectManager.saveCurrentNodeFiles()
-                                    // Always look up node index fresh
-                                    guard let nodeIndex = projectManager.nodes.firstIndex(where: { $0.id == currentNode.id }),
-                                          nodeIndex < projectManager.nodes.count,
-                                          let fileId = currentNode.selectedFileId,
-                                          let fileIndex = projectManager.nodes[nodeIndex].files.firstIndex(where: { $0.id == fileId }) else {
+                                    projectManager.saveCurrentPodFiles()
+                                    // Always look up pod index fresh
+                                    guard let podIndex = projectManager.pods.firstIndex(where: { $0.id == currentPod.id }),
+                                          podIndex < projectManager.pods.count,
+                                          let fileId = currentPod.selectedFileId,
+                                          let fileIndex = projectManager.pods[podIndex].files.firstIndex(where: { $0.id == fileId }) else {
                                         return
                                     }
-                                    projectManager.nodes[nodeIndex].files[fileIndex].language = newLanguage
-                                    projectManager.selectedNode = projectManager.nodes[nodeIndex]
+                                    projectManager.pods[podIndex].files[fileIndex].language = newLanguage
+                                    projectManager.selectedPod = projectManager.pods[podIndex]
                                 }
                             )) {
                                 ForEach(CodeLanguage.allCases, id: \.self) { language in
@@ -97,7 +97,7 @@ struct CodeEditorView: View {
                             .frame(width: 150)
                             
                             Button(action: {
-                                projectManager.openNodeProjectInFinder(currentNode)
+                                projectManager.openPodProjectInFinder(currentPod)
                             }) {
                                 HStack(spacing: 4) {
                                     Image(systemName: "folder")
@@ -110,7 +110,7 @@ struct CodeEditorView: View {
                         .padding(.horizontal)
                         .padding(.top, 12)
                         
-                        Text(currentNode.type.rawValue)
+                        Text(currentPod.type.rawValue)
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .padding(.horizontal)
@@ -121,70 +121,70 @@ struct CodeEditorView: View {
                     Divider()
                     
                     // Code editor with pure Swift NSTextView
-                    if let selectedFile = currentNode.selectedFile {
-                        let editorKey = "\(currentNode.id.uuidString)-\(selectedFile.id.uuidString)"
+                    if let selectedFile = currentPod.selectedFile {
+                        let editorKey = "\(currentPod.id.uuidString)-\(selectedFile.id.uuidString)"
                         
                         SwiftCodeEditorView(
                             text: Binding(
                                 get: {
-                                    // Always get from the CURRENT node's file - ensure isolation
-                                    guard let currentNode = projectManager.selectedNode,
-                                          let currentIndex = projectManager.nodes.firstIndex(where: { $0.id == currentNode.id }),
-                                          let fileId = currentNode.selectedFileId,
-                                          let file = projectManager.nodes[currentIndex].files.first(where: { $0.id == fileId }) else {
+                                    // Always get from the CURRENT pod's file - ensure isolation
+                                    guard let currentPod = projectManager.selectedPod,
+                                          let currentIndex = projectManager.pods.firstIndex(where: { $0.id == currentPod.id }),
+                                          let fileId = currentPod.selectedFileId,
+                                          let file = projectManager.pods[currentIndex].files.first(where: { $0.id == fileId }) else {
                                         return selectedFile.content
                                     }
-                                    // Verify we're getting the right node's content
-                                    if currentNode.id != projectManager.nodes[currentIndex].id {
-                                        print("⚠️ WARNING: Node ID mismatch! Expected \(currentNode.id), got \(projectManager.nodes[currentIndex].id)")
+                                    // Verify we're getting the right pod's content
+                                    if currentPod.id != projectManager.pods[currentIndex].id {
+                                        print("⚠️ WARNING: Pod ID mismatch! Expected \(currentPod.id), got \(projectManager.pods[currentIndex].id)")
                                     }
                                     return file.content
                                 },
                                 set: { newValue in
-                                    // CRITICAL: Update ONLY the current node's file - ensure isolation
-                                    guard let currentNode = projectManager.selectedNode,
-                                          let currentIndex = projectManager.nodes.firstIndex(where: { $0.id == currentNode.id }),
-                                          let fileId = currentNode.selectedFileId,
-                                          let fileIndex = projectManager.nodes[currentIndex].files.firstIndex(where: { $0.id == fileId }) else {
-                                        print("⚠️ ERROR: Cannot update - node or file not found")
+                                    // CRITICAL: Update ONLY the current pod's file - ensure isolation
+                                    guard let currentPod = projectManager.selectedPod,
+                                          let currentIndex = projectManager.pods.firstIndex(where: { $0.id == currentPod.id }),
+                                          let fileId = currentPod.selectedFileId,
+                                          let fileIndex = projectManager.pods[currentIndex].files.firstIndex(where: { $0.id == fileId }) else {
+                                        print("⚠️ ERROR: Cannot update - pod or file not found")
                                         return
                                     }
                                     
-                                    // Verify we're updating the right node
-                                    if currentNode.id != projectManager.nodes[currentIndex].id {
-                                        print("⚠️ WARNING: Updating wrong node! Expected \(currentNode.id), got \(projectManager.nodes[currentIndex].id)")
+                                    // Verify we're updating the right pod
+                                    if currentPod.id != projectManager.pods[currentIndex].id {
+                                        print("⚠️ WARNING: Updating wrong pod! Expected \(currentPod.id), got \(projectManager.pods[currentIndex].id)")
                                         return
                                     }
                                     
-                                    // Update ONLY this node's file
-                                    projectManager.nodes[currentIndex].files[fileIndex].content = newValue
+                                    // Update ONLY this pod's file
+                                    projectManager.pods[currentIndex].files[fileIndex].content = newValue
                                     
                                     // Also update main code for backward compatibility
                                     if fileIndex == 0 {
-                                        projectManager.nodes[currentIndex].code = newValue
+                                        projectManager.pods[currentIndex].code = newValue
                                     }
                                     
-                                    // Update selectedNode to match
-                                    projectManager.selectedNode = projectManager.nodes[currentIndex]
+                                    // Update selectedPod to match
+                                    projectManager.selectedPod = projectManager.pods[currentIndex]
                                     
                                     // AUTO SAVE immediately to project file
                                     Task {
-                                        await saveFileToProject(node: projectManager.nodes[currentIndex], file: projectManager.nodes[currentIndex].files[fileIndex])
+                                        await saveFileToProject(pod: projectManager.pods[currentIndex], file: projectManager.pods[currentIndex].files[fileIndex])
                                     }
                                 }
                             ),
                             language: selectedFile.language,
                             editorInstanceId: editorKey
                         )
-                        .id(editorKey) // Unique ID per node+file - forces new instance
+                        .id(editorKey) // Unique ID per pod+file - forces new instance
                         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
-                        .onChange(of: projectManager.selectedNode?.id) { _ in
-                            // Save before switching nodes
-                            projectManager.saveCurrentNodeFiles()
+                        .onChange(of: projectManager.selectedPod?.id) { _ in
+                            // Save before switching pods
+                            projectManager.saveCurrentPodFiles()
                         }
                         .onDisappear {
                             // Save when editor disappears
-                            projectManager.saveCurrentNodeFiles()
+                            projectManager.saveCurrentPodFiles()
                         }
                     } else {
                         VStack {
@@ -205,10 +205,10 @@ struct CodeEditorView: View {
                         Image(systemName: "doc.text")
                             .font(.system(size: 48))
                             .foregroundColor(.secondary)
-                        Text("No Node Selected")
+                        Text("No Pod Selected")
                             .font(.title2)
                             .foregroundColor(.secondary)
-                        Text("Select a node from the sidebar or canvas to edit its code")
+                        Text("Select a pod from the sidebar or canvas to edit its code")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -221,8 +221,8 @@ struct CodeEditorView: View {
         }
     }
     
-    private func saveFileToProject(node: Node, file: ProjectFile) async {
-        guard let projectPath = node.projectPath else {
+    private func saveFileToProject(pod: Pod, file: ProjectFile) async {
+        guard let projectPath = pod.projectPath else {
             return
         }
         
