@@ -31,14 +31,14 @@ else
     exit 1
 fi
 
-# Copy icon if it exists (check multiple possible locations)
+# Copy icon if it exists (prefer smaller assets for faster packaging)
 ICON_PATH=""
-if [ -f "Pioneer.png" ]; then
-    ICON_PATH="Pioneer.png"
+if [ -f "Pioneer.icon/Assets/Pioneer@3x.png" ]; then
+    ICON_PATH="Pioneer.icon/Assets/Pioneer@3x.png"
 elif [ -f "Resources/Pioneer.png" ]; then
     ICON_PATH="Resources/Pioneer.png"
-elif [ -f "Pioneer.icon/Assets/Pioneer@3x.png" ]; then
-    ICON_PATH="Pioneer.icon/Assets/Pioneer@3x.png"
+elif [ -f "Pioneer.png" ]; then
+    ICON_PATH="Pioneer.png"
 fi
 
 if [ -n "${ICON_PATH}" ]; then
@@ -97,9 +97,9 @@ cat > "${CONTENTS_DIR}/Info.plist" << EOF
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>0.2.0</string>
     <key>CFBundleVersion</key>
-    <string>4</string>
+    <string>20</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>NSHumanReadableCopyright</key>
